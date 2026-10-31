@@ -14,6 +14,8 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -61,8 +63,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun AppRoot(app: NasMusicApp) {
     val token by app.session.token.collectAsState()
-    CompositionLocalProvider(LocalApp provides app) {
-        if (token == null) LoginScreen() else MainScaffold(app)
+    // Gives every screen (login, full-screen player) the theme's text colour.
+    Surface(color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
+        CompositionLocalProvider(LocalApp provides app) {
+            if (token == null) LoginScreen() else MainScaffold(app)
+        }
     }
 }
 

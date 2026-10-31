@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.acarmonafigueroa.nasfonia"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
     }
 
     // Upload key for Google Play and GitHub releases. keystore.properties and the .jks stay out of git;

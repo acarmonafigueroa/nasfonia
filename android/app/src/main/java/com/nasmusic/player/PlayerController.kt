@@ -52,6 +52,8 @@ class PlayerController(private val context: Context, private val api: Api) {
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = publish()
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            // 2xxx are network/IO errors: the address may have stopped answering.
+            if (error.errorCode in 2000..2999) onStreamError()
             _state.value = _state.value.copy(error = "No se puede reproducir: ${error.errorCodeName}")
         }
     }
@@ -226,12 +228,25 @@ class PlayerController(private val context: Context, private val api: Api) {
         if (cur + 1 < c.mediaItemCount) c.removeMediaItems(cur + 1, c.mediaItemCount)
     }
 
-    /** Stream and cover URLs carry the token; rebuild the queue after it changes. */
-    fun refreshUrls() = withController { c ->
-        for (i in 0 until c.mediaItemCount) {
-            val t = trackOf(c.getMediaItemAt(i)) ?: continue
-            c.replaceMediaItem(i, toItem(t))
-        }
+    /** Stream and cover URLs carry the token and the address; rebuild the queue after either changes. */
+    fun refreshUrls(resume: Boolean = false) = withController { c ->
+        if (c.mediaItemCount == 0) return@withController
+        val wasPlaying = c.playWhenReady
+        val index = c.currentMediaItemIndex
+        val position = c.currentPosition
+        val items = (0 until c.mediaItemCount).mapNotNull { trackOf(c.getMediaItemAt(it)) }.map(::toItem)
+        c.setMediaItems(items, index, position)
+        c.prepare()
+        if (resume && wasPlaying) c.play()
+    }
+
+    /** Set by the app: playback lost the connection (e.g. we left home); try the other address. */
+    var onStreamError: () -> Unit = {}
+
+    /** After switching address: pick up where it stopped. */
+    fun resume() = withController { c ->
+        c.prepare()
+        c.play()
     }
 
     fun clearError() {

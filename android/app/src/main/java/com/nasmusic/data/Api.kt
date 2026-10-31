@@ -1,6 +1,8 @@
 package com.nasmusic.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -33,9 +35,20 @@ class Api(private val session: Session) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    // Quick checks of which address answers; a dead one must not hold the app for long.
+    private val probe: OkHttpClient = http.newBuilder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .callTimeout(4, TimeUnit.SECONDS)
+        .build()
+
+    /** Called after the active address changes, so URLs already handed out (the queue) are rebuilt. */
+    var onAddressChanged: () -> Unit = {}
+
     private val jsonType = "application/json".toMediaType()
-    private val base get() = session.serverUrl.trimEnd('/')
+    private val base get() = session.activeUrl.ifBlank { session.serverUrl }.trimEnd('/')
     private val token get() = session.token.value.orEmpty()
+    private val switching = Mutex()
 
     fun coverUrl(albumId: Long?): String? =
         albumId?.let { "$base/api/cover/$it?token=${enc(token)}" }
@@ -44,10 +57,22 @@ class Api(private val session: Session) {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private suspend fun call(method: String, path: String, body: String? = null, url: String = base): String =
+    private suspend fun call(method: String, path: String, body: String? = null, url: String? = null): String {
+        if (url != null) return send(method, path, body, url)
+        return try {
+            send(method, path, body, base)
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: IOException) {
+            // Unreachable: maybe we left home (or came back). Try the other address once.
+            if (pickReachable()) send(method, path, body, base) else throw e
+        }
+    }
+
+    private suspend fun send(method: String, path: String, body: String?, url: String): String =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
-                .url("$url/api$path")
+                .url("${url.trimEnd('/')}/api$path")
                 .header("Authorization", "Bearer $token")
                 .method(method, body?.toRequestBody(jsonType) ?: if (method == "GET" || method == "DELETE") null else "".toRequestBody(jsonType))
                 .build()
@@ -64,29 +89,96 @@ class Api(private val session: Session) {
 
     private suspend inline fun <reified T> get(path: String): T = json.decodeFromString(call("GET", path))
 
-    // --- session ------------------------------------------------------------
+    // --- addresses ----------------------------------------------------------
 
-    /** Normalises what the user typed ("192.168.1.10" → "http://192.168.1.10:8090"). */
-    fun normalizeUrl(input: String): String? {
-        var s = input.trim().trimEnd('/')
-        if (s.isEmpty()) return null
-        if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://$s"
-        val url = s.toHttpUrlOrNull() ?: return null
-        val hasPort = Regex("^https?://[^/]+:\\d+").containsMatchIn(s)
-        return if (hasPort || url.scheme == "https") s else "${url.scheme}://${url.host}:8090${url.encodedPath.trimEnd('/')}"
+    /** Does a Nasfonía server answer at [url]? */
+    suspend fun reachable(url: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            probe.newCall(Request.Builder().url("${url.trimEnd('/')}/api/ping").build()).execute().use { res ->
+                res.isSuccessful && json.decodeFromString<Ping>(res.body?.string().orEmpty()).app == "nasfonia"
+            }
+        }.getOrDefault(false)
     }
 
-    suspend fun login(serverUrl: String, password: String): LoginResponse {
-        val ping: Ping = json.decodeFromString(call("GET", "/ping", url = serverUrl))
-        if (ping.app != "nasfonia") throw IOException("Ese servidor no es de Nasfonía")
+    /**
+     * Makes the first address that answers the active one, home address first.
+     * Returns true when it switched (and tells [onAddressChanged]).
+     */
+    suspend fun pickReachable(): Boolean = switching.withLock {
+        val options = listOf(session.serverUrl, session.altUrl).filter { it.isNotBlank() }.distinct()
+        if (options.size < 2) return@withLock false
+        val ok = options.firstOrNull { reachable(it) } ?: return@withLock false
+        if (ok == session.activeUrl) return@withLock false
+        session.activeUrl = ok
+        withContext(Dispatchers.Main) { onAddressChanged() }
+        true
+    }
+
+    /**
+     * What the user may type, turned into URLs to try in order:
+     * "192.168.1.50" → http://192.168.1.50:8090 · "musica.example.com" → https://musica.example.com, then :8090 ·
+     * anything with http(s):// is kept as typed (plus :8090 when it has no port).
+     */
+    fun candidates(input: String): List<String> {
+        val s = input.trim().trimEnd('/')
+        if (s.isEmpty()) return emptyList()
+        val hasScheme = s.startsWith("http://", true) || s.startsWith("https://", true)
+        val url = (if (hasScheme) s else "http://$s").toHttpUrlOrNull() ?: return emptyList()
+        val hasPort = Regex("^(https?://)?[^/]+:\\d+", RegexOption.IGNORE_CASE).containsMatchIn(s)
+        val path = url.encodedPath.trimEnd('/')
+        val host = url.host
+        val local = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(host) || '.' !in host ||
+            host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home") || host.contains(':')
+        val h = if (host.contains(':')) "[$host]" else host
+        return when {
+            hasScheme && hasPort -> listOf(s)
+            hasScheme -> listOf(s, "${url.scheme}://$h:8090$path")
+            hasPort -> listOf("http://$s", "https://$s")
+            local -> listOf("http://$h:8090$path", "http://$h$path")
+            else -> listOf("https://$h$path", "http://$h:8090$path", "http://$h$path")
+        }.distinct()
+    }
+
+    /** First candidate of [input] that answers, or null. */
+    suspend fun resolve(input: String): String? = candidates(input).firstOrNull { reachable(it) }
+
+    /**
+     * Signs in. [address] is required; [altAddress] (the other way in, e.g. from outside home) is optional
+     * and may be unreachable right now — it is then kept as the best guess.
+     */
+    suspend fun login(address: String, altAddress: String, username: String, password: String): LoginResponse {
+        val primaryGuess = candidates(address).firstOrNull() ?: throw IOException("Escribe la dirección del servidor")
+        val altGuess = candidates(altAddress).firstOrNull().orEmpty()
+        val primary = resolve(address)
+        val alt = if (altAddress.isBlank()) "" else resolve(altAddress) ?: altGuess
+        val use = primary ?: alt.takeIf { it.isNotEmpty() && reachable(it) }
+            ?: throw IOException("No se encuentra Nasfonía en esa dirección. Revisa que el contenedor esté en marcha y que el móvil llegue a esa red.")
+        val ping: Ping = json.decodeFromString(send("GET", "/ping", null, use))
         val body = buildJsonObject {
+            put("username", username.trim())
             put("password", password)
             put("device", android.os.Build.MODEL ?: "android")
         }.toString()
-        val res: LoginResponse = json.decodeFromString(call("POST", "/login", body, url = serverUrl))
-        session.save(serverUrl, res.name.ifBlank { ping.name }, res.token)
+        val res: LoginResponse = json.decodeFromString(send("POST", "/login", body, use))
+        session.save(primary ?: primaryGuess, alt, res.name.ifBlank { ping.name }, res.user?.username ?: username.trim(), res.token)
+        session.activeUrl = use
         return res
     }
+
+    /** Changes the saved addresses after checking at least one answers. */
+    suspend fun updateAddresses(address: String, altAddress: String) {
+        val primary = resolve(address)
+        val alt = if (altAddress.isBlank()) "" else resolve(altAddress) ?: candidates(altAddress).firstOrNull().orEmpty()
+        if (primary == null && (alt.isEmpty() || !reachable(alt))) throw IOException("Ninguna de las dos direcciones responde ahora mismo")
+        session.setUrls(primary ?: candidates(address).firstOrNull().orEmpty(), alt)
+        val use = primary ?: alt
+        if (use != session.activeUrl) {
+            session.activeUrl = use
+            onAddressChanged()
+        }
+    }
+
+    suspend fun me(): UserInfo = get("/me")
 
     // --- library ------------------------------------------------------------
     suspend fun home(): Home = get("/home")
@@ -155,7 +247,31 @@ class Api(private val session: Session) {
             put("device", android.os.Build.MODEL ?: "android")
         }.toString()
         val res: LoginResponse = json.decodeFromString(call("POST", "/password", body))
-        session.save(session.serverUrl, session.serverName, res.token)
+        session.setToken(res.token)
+    }
+
+    // --- users (administrators) ---------------------------------------------
+    suspend fun users(): List<AppUser> = get("/users")
+
+    suspend fun createUser(username: String, password: String, isAdmin: Boolean) {
+        val body = buildJsonObject {
+            put("username", username.trim())
+            put("password", password)
+            put("isAdmin", isAdmin)
+        }.toString()
+        call("POST", "/users", body)
+    }
+
+    suspend fun setUserPassword(id: Long, password: String) {
+        call("PATCH", "/users/$id", buildJsonObject { put("password", password) }.toString())
+    }
+
+    suspend fun setUserAdmin(id: Long, isAdmin: Boolean) {
+        call("PATCH", "/users/$id", buildJsonObject { put("isAdmin", isAdmin) }.toString())
+    }
+
+    suspend fun deleteUser(id: Long) {
+        call("DELETE", "/users/$id")
     }
 
     // --- music folders ------------------------------------------------------

@@ -264,6 +264,10 @@ svg.ic { width: 24px; height: 24px; fill: currentColor; flex: none; display: blo
 .pw-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 .pw-form p { margin: 0; font-size: 13px; }
 .pw-form .error:empty { display: none; }
+.badge { font-style: normal; font-size: 11px; font-weight: 700; color: #000; background: var(--accent); border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+.pw-form label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+.pw-form label.check input { width: auto; }
+.add-user { background: #ffffff0d; border-radius: 6px; padding: 12px; }
 .folder-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .folder-head h2 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-list { overflow-y: auto; min-height: 60px; max-height: 50vh; display: flex; flex-direction: column; gap: 2px; }

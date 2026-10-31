@@ -8,7 +8,9 @@ Sin suscripciones, sin anuncios y sin que tus datos salgan de casa.
 - 🔎 Búsqueda instantánea, sin acentos («camaron» encuentra «Camarón»)
 - 💿 Álbumes, artistas, géneros y portadas (incrustadas o `cover.jpg`)
 - ❤️ Canciones que te gustan, playlists, cola, aleatorio y repetir
+- 👥 Varios usuarios, cada uno con sus favoritos, playlists e historial
 - 📁 Eliges las carpetas de música desde la propia app
+- 🌍 En casa por IP y fuera por tu dominio: la app cambia sola de una a otra
 - 📱 Android: reproducción en segundo plano, notificación, pantalla de bloqueo y Bluetooth
 - 🎧 MP3, FLAC, M4A/AAC, OGG, Opus, WAV… con avance rápido dentro de la canción
 
@@ -24,7 +26,7 @@ Funciona en NAS **UGREEN (UGOS Pro)**, Synology, QNAP, Unraid, TrueNAS o cualqui
 2. Elige una carpeta para el proyecto, por ejemplo `/volume1/docker/nasfonia`.
 3. Pega el contenido de [`server/docker-compose.yml`](server/docker-compose.yml) y cambia `/volume1/Music` por la carpeta donde tienes tu música.
 4. Pulsa **Desplegar** y abre `http://IP-DE-TU-NAS:8090`.
-5. Entra con la contraseña de serie **`adminadmin`** y cámbiala por una tuya cuando te lo pida.
+5. Entra con el usuario **`admin`** y la contraseña **`adminadmin`**, y cámbiala por una tuya cuando te lo pida.
 
 ### Cualquier otro NAS o Linux con Docker
 
@@ -43,20 +45,36 @@ Todo lo que montes bajo `/nas` en el `docker-compose.yml` se puede explorar desd
 
 | Variable | Por defecto | Para qué sirve |
 |---|---|---|
-| `MUSIC_PASSWORD` | — | Fija la contraseña (entonces no se puede cambiar desde las apps). Sin ella, la de serie es `adminadmin` y se cambia desde la web o la app |
+| `MUSIC_PASSWORD` | — | Fija la contraseña del usuario `admin` (entonces no se puede cambiar desde las apps). Sin ella, la de serie es `adminadmin` |
 | `MUSIC_DIR` | `/music` | Carpetas iniciales, separadas por comas |
-| `RESET_PASSWORD` | — | `1` devuelve la contraseña a `adminadmin` al arrancar (quítala después) |
+| `RESET_PASSWORD` | — | `1` devuelve la contraseña del usuario `admin` a `adminadmin` al arrancar (quítala después) |
 | `BROWSE_ROOT` | `/nas` | Raíz que se puede explorar al elegir carpetas |
 | `SERVER_NAME` | `Nasfonía` | Nombre que se muestra en la app |
 | `SCAN_INTERVAL_MINUTES` | `60` | Reescaneo automático (0 = desactivado) |
 | `PORT` | `8090` | Puerto |
+| `TRUST_PROXY` | redes privadas | Proxies de los que se acepta `X-Forwarded-For` (para saber la IP real del cliente) |
 
-### Contraseña
+### Usuarios y contraseñas
 
-La contraseña de serie es `adminadmin`. Cámbiala desde la web (icono de usuario → **Cambiar contraseña…**) o desde la app (⚙ en Inicio). Al cambiarla se cierra la sesión en el resto de dispositivos. Se guarda cifrada (scrypt).
+La primera vez entra con **`admin` / `adminadmin`** y cámbiala cuando te lo pida. Desde la web (icono de usuario) o la app (⚙ en Inicio):
 
-**¿Se te ha olvidado?** Añade `RESET_PASSWORD=1` en `environment` del docker-compose y vuelve a desplegar: la contraseña vuelve a ser `adminadmin`. Después quita esa línea y despliega otra vez, o se restablecería en cada reinicio.
+- **Cambiar contraseña** — cada usuario la suya. Se guarda cifrada (scrypt) y se cierra la sesión en sus otros dispositivos.
+- **Usuarios** (solo administradores) — crea uno para cada persona de casa. Cada uno tiene sus propios favoritos, playlists e historial; la música es la misma para todos. El administrador puede ponerles contraseña nueva, hacerlos administradores o borrarlos.
+- Solo los administradores eligen las carpetas de música y lanzan escaneos.
 
+**¿Se te ha olvidado la de `admin`?** Añade `RESET_PASSWORD=1` en `environment` del docker-compose y vuelve a desplegar: vuelve a ser `adminadmin`. Después quita esa línea y despliega otra vez, o se restablecería en cada reinicio.
+
+### Entrar desde fuera de casa
+
+La app y la web funcionan igual con una IP local, una IP pública o un dominio. En la app puedes guardar **dos direcciones**: la de casa y la de fuera; usa la de casa cuando puede y cambia sola a la otra al salir.
+
+Formas de llegar a tu NAS desde fuera, de más a menos recomendable:
+
+1. **VPN** (WireGuard, Tailscale o la VPN de tu router/NAS). No expones nada a Internet; usa la IP de casa.
+2. **Dominio con HTTPS** a través de un proxy inverso (por ejemplo **Nginx Proxy Manager** en el propio NAS, con certificado de Let's Encrypt): `https://musica.tudominio.com` → `http://IP-DEL-NAS:8090`. Abre solo el 443 en el router.
+3. **IP pública y puerto 8090** abierto en el router. Funciona, pero sin cifrar: tu contraseña viajaría a la vista. Úsalo solo para probar.
+
+Si expones Nasfonía a Internet: cambia la contraseña de serie, usa contraseñas largas, y ten en cuenta que tras 8 intentos fallidos desde una IP se bloquea durante 15 minutos.
 ### Actualizar
 
 En UGOS: **Docker → Proyecto → nasfonia → Actualizar imagen**. En la terminal: `docker compose pull && docker compose up -d`.
@@ -66,9 +84,7 @@ En UGOS: **Docker → Proyecto → nasfonia → Actualizar imagen**. En la termi
 - **Google Play:** próximamente.
 - **APK:** descárgalo en [Releases](https://github.com/acarmonafigueroa/nasfonia/releases/latest).
 
-Al abrirla escribe la IP de tu NAS (por ejemplo `192.168.1.50`; si no pones puerto, usa el 8090) y la contraseña. El móvil tiene que estar en la misma red que el NAS.
-
-**Fuera de casa:** no abras el puerto 8090 a Internet. Conéctate a tu red con una VPN (WireGuard, Tailscale, la de tu router o la de tu NAS) y usa la misma dirección.
+Al abrirla escribe la dirección de tu NAS: una IP (`192.168.1.50`; si no pones puerto, usa el 8090), un dominio (`musica.tudominio.com`, prueba primero HTTPS) o una URL completa. Opcionalmente, añade la dirección para cuando estés fuera de casa. Después, tu usuario y contraseña.
 
 ## Privacidad
 
@@ -93,7 +109,10 @@ Todas las rutas, salvo `/api/ping` y `/api/login`, piden `Authorization: Bearer 
 
 | Método | Ruta | |
 |---|---|---|
-| POST | `/api/login` `{password}` | Devuelve `{token}` |
+| POST | `/api/login` `{username, password}` | Devuelve `{token, user}` |
+| GET | `/api/me` | Usuario actual |
+| POST | `/api/password` `{current, next}` | Cambia la propia contraseña |
+| GET/POST/PATCH/DELETE | `/api/users`, `/api/users/:id` | Usuarios (administradores) |
 | GET | `/api/home` | Pantalla de inicio |
 | GET | `/api/albums?sort=title\|artist\|year\|recent\|random`, `/api/albums/:id` | |
 | GET | `/api/artists`, `/api/artists/:id`, `/api/artists/:id/tracks` | |
@@ -112,7 +131,6 @@ Todas las rutas, salvo `/api/ping` y `/api/login`, piden `Authorization: Bearer 
 ## Limitaciones
 
 - No convierte formatos: se envía el archivo original. ALAC, WMA o APE pueden no sonar en el navegador.
-- Un único usuario, con una contraseña compartida.
 - Todavía no hay descargas para escuchar sin conexión.
 
 ## Licencia

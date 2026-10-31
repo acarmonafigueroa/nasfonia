@@ -1,13 +1,14 @@
 import { normalize } from './db.js';
 
-const TRACK_SELECT = `
+// Favorites are per user, so the track query is built for one user id (always an integer).
+const trackSelect = (uid) => `
   SELECT t.id, t.title, t.artist_id AS artistId, ar.name AS artist, t.album_id AS albumId, al.title AS album,
          t.track_no AS trackNo, t.disc_no AS discNo, t.duration, t.genre, t.year, t.format, t.bitrate,
          (al.cover IS NOT NULL) AS hasCover, (f.track_id IS NOT NULL) AS favorite
   FROM tracks t
   JOIN artists ar ON ar.id = t.artist_id
   JOIN albums al ON al.id = t.album_id
-  LEFT JOIN favorites f ON f.track_id = t.id`;
+  LEFT JOIN favorites f ON f.track_id = t.id AND f.user_id = ${Number(uid)}`;
 
 const ALBUM_SELECT = `
   SELECT al.id, al.title, al.artist_id AS artistId, ar.name AS artist, al.year, (al.cover IS NOT NULL) AS hasCover,
@@ -55,10 +56,24 @@ const track = (r) => r && { ...r, hasCover: Boolean(r.hasCover), favorite: Boole
 const album = (r) => r && { ...r, hasCover: Boolean(r.hasCover) };
 const int = (v, def, max) => Math.min(Math.max(Number.parseInt(v, 10) || def, 0), max);
 
+/** orUser(id) gives the library as that user sees it: their favorites, playlists and history. */
 export function createLibrary(db) {
+  const cache = new Map();
+  return {
+    forUser(uid) {
+      if (!cache.has(uid)) cache.set(uid, libraryFor(db, Number(uid)));
+      return cache.get(uid);
+    },
+  };
+}
+
+function libraryFor(db, uid) {
   const all = (sql, ...p) => db.prepare(sql).all(...p);
   const get = (sql, ...p) => db.prepare(sql).get(...p);
   const now = () => Date.now();
+  const TRACK_SELECT = trackSelect(uid);
+  const MY_PLAYLISTS = `${PLAYLIST_SELECT} WHERE p.user_id = ${uid}`;
+  const MY_PLAYS = `(SELECT * FROM plays WHERE user_id = ${uid})`;
 
   const lib = {
     stats() {
@@ -141,7 +156,7 @@ export function createLibrary(db) {
         artists: all(`${ARTIST_SELECT} WHERE ${like('norm(ar.name)')} AND ar.id IN (SELECT artist_id FROM tracks) LIMIT ?`, ...params, limit),
         albums: all(`${ALBUM_SELECT} WHERE ${like("norm(al.title || ' ' || ar.name)")} GROUP BY al.id LIMIT ?`, ...params, limit).map(album),
         tracks: all(`${TRACK_SELECT} WHERE ${like("norm(t.title || ' ' || ar.name || ' ' || al.title)")} LIMIT ?`, ...params, limit * 2).map(track),
-        playlists: all(`${PLAYLIST_SELECT} WHERE ${like('norm(p.name)')} LIMIT ?`, ...params, limit),
+        playlists: all(`${MY_PLAYLISTS} AND ${like('norm(p.name)')} LIMIT ?`, ...params, limit),
       };
     },
 
@@ -155,26 +170,26 @@ export function createLibrary(db) {
     },
 
     setFavorite(trackId, on) {
-      if (on) db.prepare('INSERT OR IGNORE INTO favorites(track_id, added_at) SELECT id, ? FROM tracks WHERE id = ?').run(now(), trackId);
-      else db.prepare('DELETE FROM favorites WHERE track_id = ?').run(trackId);
+      if (on) db.prepare('INSERT OR IGNORE INTO favorites(user_id, track_id, added_at) SELECT ?, id, ? FROM tracks WHERE id = ?').run(uid, now(), trackId);
+      else db.prepare('DELETE FROM favorites WHERE user_id = ? AND track_id = ?').run(uid, trackId);
     },
 
     // --- plays -----------------------------------------------------------
     recordPlay(trackId) {
-      db.prepare('INSERT INTO plays(track_id, played_at) SELECT id, ? FROM tracks WHERE id = ?').run(now(), trackId);
+      db.prepare('INSERT INTO plays(user_id, track_id, played_at) SELECT ?, id, ? FROM tracks WHERE id = ?').run(uid, now(), trackId);
     },
 
     home() {
       const recentTracks = all(
-        `${TRACK_SELECT} JOIN (SELECT track_id, MAX(played_at) AS last FROM plays GROUP BY track_id) p ON p.track_id = t.id
+        `${TRACK_SELECT} JOIN (SELECT track_id, MAX(played_at) AS last FROM ${MY_PLAYS} GROUP BY track_id) p ON p.track_id = t.id
          ORDER BY p.last DESC LIMIT 20`,
       ).map(track);
       const recentAlbums = all(
-        `${ALBUM_SELECT} JOIN (SELECT tr.album_id AS aid, MAX(p.played_at) AS last FROM plays p JOIN tracks tr ON tr.id = p.track_id GROUP BY tr.album_id) rp ON rp.aid = al.id
+        `${ALBUM_SELECT} JOIN (SELECT tr.album_id AS aid, MAX(p.played_at) AS last FROM ${MY_PLAYS} p JOIN tracks tr ON tr.id = p.track_id GROUP BY tr.album_id) rp ON rp.aid = al.id
          GROUP BY al.id ORDER BY rp.last DESC LIMIT 12`,
       ).map(album);
       const mostPlayed = all(
-        `${TRACK_SELECT} JOIN (SELECT track_id, COUNT(*) AS n FROM plays GROUP BY track_id) p ON p.track_id = t.id
+        `${TRACK_SELECT} JOIN (SELECT track_id, COUNT(*) AS n FROM ${MY_PLAYS} GROUP BY track_id) p ON p.track_id = t.id
          ORDER BY p.n DESC LIMIT 10`,
       ).map(track);
       return {
@@ -191,11 +206,11 @@ export function createLibrary(db) {
 
     // --- playlists -------------------------------------------------------
     playlists() {
-      return all(`${PLAYLIST_SELECT} ORDER BY p.updated_at DESC`);
+      return all(`${MY_PLAYLISTS} ORDER BY p.updated_at DESC`);
     },
 
     playlist(id) {
-      const p = get(`${PLAYLIST_SELECT} WHERE p.id = ?`, id);
+      const p = get(`${MY_PLAYLISTS} AND p.id = ?`, id);
       if (!p) return null;
       p.tracks = all(
         `${TRACK_SELECT.replace('SELECT t.id', 'SELECT pt.position, t.id')} JOIN playlist_tracks pt ON pt.track_id = t.id
@@ -206,18 +221,18 @@ export function createLibrary(db) {
     },
 
     createPlaylist(name, trackIds = []) {
-      const { lastInsertRowid } = db.prepare('INSERT INTO playlists(name, created_at, updated_at) VALUES (?, ?, ?)').run(name, now(), now());
+      const { lastInsertRowid } = db.prepare('INSERT INTO playlists(user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(uid, name, now(), now());
       const id = Number(lastInsertRowid);
       if (trackIds.length) lib.addToPlaylist(id, trackIds);
       return lib.playlist(id);
     },
 
     renamePlaylist(id, name) {
-      return db.prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?').run(name, now(), id).changes > 0;
+      return db.prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?').run(name, now(), id, uid).changes > 0;
     },
 
     deletePlaylist(id) {
-      return db.prepare('DELETE FROM playlists WHERE id = ?').run(id).changes > 0;
+      return db.prepare('DELETE FROM playlists WHERE id = ? AND user_id = ?').run(id, uid).changes > 0;
     },
 
     addToPlaylist(id, trackIds) {

@@ -75,6 +75,7 @@ function toast(msg) {
 
 // ---------------------------------------------------------------- api
 let token = store.get('nm.token', null);
+let me = null; // { id, username, isAdmin, isDefaultPassword, passwordChangeable }
 
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(`/api${path}`, {
@@ -962,15 +963,106 @@ async function openChangePassword({ nag = false } = {}) {
   };
 }
 
+// Users screen for administrators: list, add, reset password, toggle admin, delete.
+async function openUsers() {
+  const modal = $('#modal');
+  const close = () => modal.classList.add('hidden');
+  let users = await api('/users');
+  let adding = false;
+
+  function render(error = '') {
+    modal.innerHTML = `<div class="modal-card folders users">
+      <h2>Usuarios</h2>
+      <p class="muted">Cada usuario tiene sus propios favoritos, playlists e historial. La biblioteca de música es la misma para todos.</p>
+      <div class="folder-list">
+        ${users.map((u, i) => `<div class="folder-row">${icon('person', 'sm')}<span>${esc(u.username)}${u.isAdmin ? ' <em class="badge">admin</em>' : ''}${u.id === me.id ? ' <em class="muted">(tú)</em>' : ''}</span>
+          <button class="icon-btn" data-u="menu" data-i="${i}" title="Opciones">${icon('more', 'sm')}</button></div>`).join('')}
+      </div>
+      ${adding ? `<form class="pw-form add-user">
+          <label>Nombre de usuario<input name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required></label>
+          <label>Contraseña<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
+          <label class="check"><input type="checkbox" name="isAdmin"> Administrador (puede gestionar usuarios, carpetas y escaneos)</label>
+          <div class="row-btns"><button type="button" class="link" data-u="cancel-add">Cancelar</button><button class="btn-primary">Crear usuario</button></div>
+        </form>` : `<button class="btn-outline" data-u="add">+ Añadir usuario</button>`}
+      <p class="error">${esc(error)}</p>
+      <div class="row-btns"><button class="btn-primary" data-u="close">Listo</button></div>
+    </div>`;
+    modal.classList.remove('hidden');
+    const form = modal.querySelector('.add-user');
+    if (form) {
+      form.username.focus();
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await api('/users', { method: 'POST', body: { username: form.username.value.trim(), password: form.password.value, isAdmin: form.isAdmin.checked } });
+          users = await api('/users');
+          adding = false;
+          render();
+          toast('Usuario creado');
+        } catch (err) {
+          render(err.message);
+        }
+      };
+    }
+  }
+
+  async function act(fn, done) {
+    try {
+      await fn();
+      users = await api('/users');
+      render();
+      if (done) toast(done);
+    } catch (err) {
+      render(err.message);
+    }
+  }
+
+  modal.onclick = (e) => {
+    if (e.target === modal) return close();
+    const b = e.target.closest('[data-u]');
+    if (!b) return;
+    const u = users[Number(b.dataset.i)];
+    switch (b.dataset.u) {
+      case 'close': return close();
+      case 'add': adding = true; return render();
+      case 'cancel-add': adding = false; return render();
+      case 'menu':
+        return openMenu(b, [
+          { label: u.username },
+          { text: 'Poner contraseña nueva…', icon: 'edit', run: async () => {
+            const pw = await ask(`Contraseña nueva para ${u.username}`, { placeholder: 'Mínimo 6 caracteres', ok: 'Guardar' });
+            // ask() reused the modal; draw the users list again whatever happens.
+            if (!pw) return render();
+            await act(() => api(`/users/${u.id}`, { method: 'PATCH', body: { password: pw } }), 'Contraseña cambiada. Se ha cerrado su sesión en todos sus dispositivos.');
+            modal.classList.remove('hidden');
+          } },
+          { text: u.isAdmin ? 'Quitar permiso de administrador' : 'Hacer administrador', icon: 'person', run: () => act(() => api(`/users/${u.id}`, { method: 'PATCH', body: { isAdmin: !u.isAdmin } })) },
+          '-',
+          { text: 'Borrar usuario', icon: 'trash', danger: true, run: async () => {
+            const ok = await confirmBox(`¿Borrar a ${u.username}?`, 'Se borrarán sus favoritos, playlists e historial. La música no se toca.');
+            if (!ok) return render();
+            await act(() => api(`/users/${u.id}`, { method: 'DELETE' }), 'Usuario borrado');
+            modal.classList.remove('hidden');
+          } },
+        ]);
+    }
+  };
+  render();
+}
+
 function userMenu(anchor) {
-  openMenu(anchor, [
-    { text: 'Carpetas de música…', icon: 'library', run: openFolders },
-    { text: 'Cambiar contraseña…', icon: 'edit', run: openChangePassword },
-    { text: 'Volver a escanear la biblioteca', icon: 'refresh', run: () => startScan(false) },
-    { text: 'Escaneo completo (releer etiquetas)', icon: 'refresh', run: () => startScan(true) },
-    '-',
-    { text: 'Cerrar sesión', icon: 'logout', run: logout },
-  ]);
+  const items = [{ label: me ? `Sesión: ${me.username}` : '' }];
+  if (me?.isAdmin) {
+    items.push(
+      { text: 'Usuarios…', icon: 'person', run: openUsers },
+      { text: 'Carpetas de música…', icon: 'library', run: openFolders },
+      { text: 'Volver a escanear la biblioteca', icon: 'refresh', run: () => startScan(false) },
+      { text: 'Escaneo completo (releer etiquetas)', icon: 'refresh', run: () => startScan(true) },
+      '-',
+    );
+  }
+  items.push({ text: 'Cambiar contraseña…', icon: 'edit', run: openChangePassword }, '-', { text: 'Cerrar sesión', icon: 'logout', run: logout });
+  openMenu(anchor, items);
 }
 
 async function startScan(full) {
@@ -1124,21 +1216,32 @@ function bindEvents() {
 // ---------------------------------------------------------------- session
 function logout() {
   token = null;
+  me = null;
   store.del('nm.token');
   audio.pause();
+  // The next person to sign in on this browser must not inherit this one's queue.
+  Object.assign(player, { queue: [], original: null, index: -1, context: null });
+  store.del('nm.player');
+  favs.clear();
+  updateNowPlaying();
+  $('#login-username').value = store.get('nm.username', 'admin');
   $('#app').classList.add('hidden');
   $('#login').classList.remove('hidden');
+  $('#login-password').focus();
 }
 
 async function start() {
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  const [favList] = await Promise.all([api('/favorites'), refreshPlaylists()]);
+  const [user, favList] = await Promise.all([api('/me'), api('/favorites'), refreshPlaylists()]);
+  me = user;
+  $('[data-action="user-menu"]').title = me.username;
+  favs.clear();
   favList.forEach((t) => favs.add(t.id));
   renderLibrary();
   route();
   // Ask once per page load while the well-known default is still in use.
-  api('/password').then((p) => p.isDefault && openChangePassword({ nag: true })).catch(() => {});
+  if (me.isDefaultPassword) openChangePassword({ nag: true });
 }
 
 $('#login-form').addEventListener('submit', async (e) => {
@@ -1147,7 +1250,10 @@ $('#login-form').addEventListener('submit', async (e) => {
   btn.disabled = true;
   $('#login-error').textContent = '';
   try {
-    const r = await api('/login', { method: 'POST', body: { password: $('#login-password').value, device: 'web' } });
+    const username = $('#login-username').value.trim();
+    const r = await api('/login', { method: 'POST', body: { username, password: $('#login-password').value, device: 'web' } });
+    store.set('nm.username', username);
+    $('#login-password').value = '';
     token = r.token;
     store.set('nm.token', token);
     await start();

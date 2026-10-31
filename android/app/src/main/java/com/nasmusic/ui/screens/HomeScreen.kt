@@ -24,11 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +57,6 @@ import com.nasmusic.ui.AlbumCard
 import com.nasmusic.ui.ArtistCard
 import com.nasmusic.ui.CoverImage
 import com.nasmusic.ui.LikedCover
-import com.nasmusic.ui.Load
 import com.nasmusic.ui.LoadBox
 import com.nasmusic.ui.LocalApp
 import com.nasmusic.ui.LocalNav
@@ -93,10 +95,15 @@ fun HomeScreen() {
     ReloadOn(playlistsVersion) { loaded.reload() }
     var menu by remember { mutableStateOf(false) }
     var changingPassword by remember { mutableStateOf(false) }
-    // Re-checked after every change so the warning disappears.
-    val passwordInfo = rememberLoad(changingPassword) { app.api.passwordInfo() }
-    val onDefaultPassword = (passwordInfo.state as? Load.Ok)?.value?.isDefault == true
-    if (changingPassword) ChangePasswordDialog(nag = onDefaultPassword) { changingPassword = false }
+    var editingAddresses by remember { mutableStateOf(false) }
+    val me by app.me.collectAsState()
+    val onDefaultPassword = me?.isDefaultPassword == true
+    if (changingPassword) ChangePasswordDialog(nag = onDefaultPassword) {
+        changingPassword = false
+        // So the warning disappears once it is changed.
+        app.refreshMe()
+    }
+    if (editingAddresses) AddressesDialog { editingAddresses = false }
 
     fun scan(full: Boolean) {
         scope.launch {
@@ -129,30 +136,43 @@ fun HomeScreen() {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Settings, "Opciones") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 Text(
-                                    app.session.serverName.ifBlank { app.session.serverUrl },
+                                    "${me?.username ?: app.session.username} · ${app.session.serverName.ifBlank { app.session.activeUrl }}",
                                     color = Muted,
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 )
+                                if (me?.isAdmin == true) {
+                                    DropdownMenuItem(
+                                        text = { Text("Usuarios") },
+                                        leadingIcon = { Icon(Icons.Rounded.Group, null) },
+                                        onClick = { menu = false; nav.navigate(Routes.USERS) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Carpetas de música") },
+                                        leadingIcon = { Icon(Icons.Rounded.Folder, null) },
+                                        onClick = { menu = false; nav.navigate(Routes.FOLDERS) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Volver a escanear la biblioteca") },
+                                        leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
+                                        onClick = { menu = false; scan(false) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Escaneo completo") },
+                                        leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
+                                        onClick = { menu = false; scan(true) },
+                                    )
+                                    HorizontalDivider()
+                                }
                                 DropdownMenuItem(
-                                    text = { Text("Carpetas de música") },
-                                    leadingIcon = { Icon(Icons.Rounded.Folder, null) },
-                                    onClick = { menu = false; nav.navigate(Routes.FOLDERS) },
+                                    text = { Text("Direcciones del servidor") },
+                                    leadingIcon = { Icon(Icons.Rounded.Public, null) },
+                                    onClick = { menu = false; editingAddresses = true },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Cambiar contraseña") },
                                     leadingIcon = { Icon(Icons.Rounded.Key, null) },
                                     onClick = { menu = false; changingPassword = true },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Volver a escanear la biblioteca") },
-                                    leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
-                                    onClick = { menu = false; scan(false) },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Escaneo completo") },
-                                    leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
-                                    onClick = { menu = false; scan(true) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Cerrar sesión") },

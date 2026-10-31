@@ -118,4 +118,17 @@ data class PasswordInfo(val changeable: Boolean = true, val isDefault: Boolean =
 data class Ping(val name: String = "", val version: String = "", val app: String = "")
 
 @Serializable
-data class LoginResponse(val token: String, val name: String = "")
+data class UserInfo(
+    val id: Long,
+    val username: String,
+    val isAdmin: Boolean = false,
+    val isDefaultPassword: Boolean = false,
+    val passwordChangeable: Boolean = true,
+)
+
+/** A row of the admin's user list. */
+@Serializable
+data class AppUser(val id: Long, val username: String, val isAdmin: Boolean = false)
+
+@Serializable
+data class LoginResponse(val token: String, val name: String = "", val user: UserInfo? = null)

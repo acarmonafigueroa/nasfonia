@@ -96,6 +96,7 @@ object Routes {
     const val ALBUMS = "albums"
     const val ARTISTS = "artists"
     const val FOLDERS = "folders"
+    const val USERS = "users"
     fun album(id: Long) = "album/$id"
     fun artist(id: Long) = "artist/$id"
     fun playlist(id: Long) = "playlist/$id"

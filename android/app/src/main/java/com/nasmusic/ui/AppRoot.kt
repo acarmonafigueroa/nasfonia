@@ -57,6 +57,7 @@ import com.nasmusic.ui.screens.MiniPlayer
 import com.nasmusic.ui.screens.NowPlayingScreen
 import com.nasmusic.ui.screens.PlaylistScreen
 import com.nasmusic.ui.screens.SearchScreen
+import com.nasmusic.ui.screens.UsersScreen
 import com.nasmusic.ui.theme.Muted
 import kotlinx.coroutines.launch
 
@@ -93,7 +94,7 @@ private fun MainScaffold(app: NasMusicApp) {
         }
     }
 
-    LaunchedEffect(Unit) { app.loadFavorites() }
+    LaunchedEffect(Unit) { app.onSignedIn() }
     LaunchedEffect(player.error) {
         player.error?.let {
             toast(it)
@@ -145,6 +146,7 @@ private fun MainScaffold(app: NasMusicApp) {
                     composable(Routes.ALBUMS) { AllAlbumsScreen() }
                     composable(Routes.ARTISTS) { AllArtistsScreen() }
                     composable(Routes.FOLDERS) { FoldersScreen() }
+                    composable(Routes.USERS) { UsersScreen() }
                     composable("album/{id}", listOf(navArgument("id") { type = NavType.LongType })) {
                         AlbumScreen(it.arguments!!.getLong("id"))
                     }

@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,28 +58,29 @@ fun LoginScreen() {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var server by remember { mutableStateOf(app.session.serverUrl) }
+    var alt by remember { mutableStateOf(app.session.altUrl) }
+    var showAlt by remember { mutableStateOf(app.session.altUrl.isNotEmpty()) }
+    var username by remember { mutableStateOf(app.session.username.ifEmpty { "admin" }) }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun submit() {
-        val url = app.api.normalizeUrl(server)
-        if (url == null) {
-            error = "Escribe la dirección del NAS, por ejemplo 192.168.1.50:8090"
+        if (app.api.candidates(server).isEmpty()) {
+            error = "Escribe la dirección del NAS: una IP (192.168.1.50), un dominio (musica.midominio.com) o una URL completa"
             return
         }
         busy = true
         error = null
         scope.launch {
             try {
-                app.api.login(url, password)
-                app.loadFavorites()
+                app.api.login(server, if (showAlt) alt else "", username, password)
             } catch (e: ApiException) {
                 error = e.message
             } catch (e: UnknownHostException) {
                 error = "No se encuentra el servidor. Revisa la dirección."
             } catch (e: ConnectException) {
-                error = "No se puede conectar. ¿Está el contenedor en marcha y el móvil en la misma red?"
+                error = "No se puede conectar. ¿Está el contenedor en marcha y el móvil en esa red?"
             } catch (e: SocketTimeoutException) {
                 error = "El servidor no responde."
             } catch (e: Exception) {
@@ -88,7 +90,6 @@ fun LoginScreen() {
             }
         }
     }
-
     Box(
         Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(Color(0xFF1F3A2A), Color.Black)))
@@ -110,10 +111,34 @@ fun LoginScreen() {
             OutlinedTextField(
                 value = server,
                 onValueChange = { server = it },
-                label = { Text("Dirección del servidor") },
-                placeholder = { Text("192.168.1.50:8090") },
+                label = { Text(if (showAlt) "Dirección en casa" else "Dirección del servidor") },
+                placeholder = { Text("192.168.1.50 o musica.midominio.com") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (showAlt) {
+                OutlinedTextField(
+                    value = alt,
+                    onValueChange = { alt = it },
+                    label = { Text("Dirección desde fuera (opcional)") },
+                    placeholder = { Text("musica.midominio.com o tu IP pública") },
+                    supportingText = { Text("La app usa la de casa cuando puede y cambia sola a esta al salir.") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                TextButton(onClick = { showAlt = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("+ Añadir dirección para cuando estés fuera de casa", color = Muted)
+                }
+            }
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Usuario") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next, autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -126,12 +151,12 @@ fun LoginScreen() {
                 keyboardActions = KeyboardActions(onGo = { if (!busy) submit() }),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Text("¿Primera vez? La contraseña de serie es adminadmin.", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+            Text("¿Primera vez? Entra con el usuario admin y la contraseña adminadmin.", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
             Spacer(Modifier.height(4.dp))
             Button(
                 onClick = ::submit,
-                enabled = !busy && server.isNotBlank() && password.isNotEmpty(),
+                enabled = !busy && server.isNotBlank() && username.isNotBlank() && password.isNotEmpty(),
                 colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color.Black),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {

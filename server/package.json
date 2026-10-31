@@ -1,0 +1,21 @@
+{
+  "name": "nasfonia-server",
+  "version": "1.0.0",
+  "description": "Nasfonía: tu música en streaming desde tu NAS (Docker)",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Alfonso Carmona Figueroa",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "music-metadata": "^11.2.0"
+  }
+}

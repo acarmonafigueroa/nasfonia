@@ -1,0 +1,16 @@
+server/node_modules/
+server/data/
+server/music/
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+# Signing key: never public. Keep a backup somewhere safe.
+android/keystore/
+android/keystore.properties
+*.jks
+*.keystore
+.idea/
+*.iml
+.claude/

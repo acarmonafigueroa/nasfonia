@@ -1,0 +1,27 @@
+# Nasfonía — servidor de música para tu NAS.
+# UGREEN (UGOS Pro): Docker → Proyecto → Crear → pega este archivo.
+# Synology, QNAP, Unraid, TrueNAS o cualquier Linux con Docker: `docker compose up -d`.
+#
+# Cambia las rutas de la IZQUIERDA de los volúmenes por las de tu NAS.
+services:
+  nasfonia:
+    image: ghcr.io/acarmonafigueroa/nasfonia:latest
+    container_name: nasfonia
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      # Contraseña para entrar desde la web y la app. Si la quitas, se genera una
+      # y aparece en el registro del contenedor y en /data/password.txt.
+      - MUSIC_PASSWORD=cambia-esta-contraseña
+      - SERVER_NAME=Nasfonía
+      - TZ=Europe/Madrid
+      # Carpeta inicial de música; luego puedes elegir otras desde la web o la app.
+      - MUSIC_DIR=/nas/Música
+    volumes:
+      # Lo que montes bajo /nas se puede explorar desde «Carpetas de música».
+      # Todo en solo lectura (:ro): Nasfonía nunca modifica tus archivos.
+      - "/volume1/Music:/nas/Música:ro"
+      # - "/volume2:/nas/Volumen 2:ro"
+      # Base de datos, portadas y claves. Tiene que persistir.
+      - /volume1/docker/nasfonia:/data

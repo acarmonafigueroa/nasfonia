@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; background: #000; }
+  .icon { width: 512px; height: 512px; background: #1ed760; display: grid; place-items: center; }
+  .feature { width: 1024px; height: 500px; background: radial-gradient(circle at 75% 40%, #1f6b40 0%, #0d2a1a 45%, #000 100%); display: flex; align-items: center; gap: 48px; padding: 0 72px; box-sizing: border-box; font-family: "Segoe UI", system-ui, sans-serif; color: #fff; }
+  .feature .logo { width: 180px; height: 180px; border-radius: 40px; background: #1ed760; display: grid; place-items: center; flex: none; box-shadow: 0 20px 60px #0008; }
+  .feature h1 { font-size: 92px; margin: 0; font-weight: 900; letter-spacing: -2px; }
+  .feature p { font-size: 34px; margin: 8px 0 0; color: #cfe9d9; }
+</style></head>
+<body>
+  <!-- ?icon renders the 512 icon, otherwise the 1024×500 feature graphic. -->
+  <div id="icon" class="icon"><svg width="300" height="300" viewBox="0 0 64 64"><path d="M27 12v26.6a8 8 0 1 0 4 6.9V22h14V12z" fill="#000"/></svg></div>
+  <div id="feature" class="feature">
+    <div class="logo"><svg width="110" height="110" viewBox="0 0 64 64"><path d="M27 12v26.6a8 8 0 1 0 4 6.9V22h14V12z" fill="#000"/></svg></div>
+    <div><h1>Nasfonía</h1><p>Tu música, en streaming desde tu NAS.</p></div>
+  </div>
+  <script>
+    document.getElementById(location.search.includes('icon') ? 'feature' : 'icon').remove();
+  </script>
+</body></html>

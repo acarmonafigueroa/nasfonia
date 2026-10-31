@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,6 +54,7 @@ import com.nasmusic.ui.AlbumCard
 import com.nasmusic.ui.ArtistCard
 import com.nasmusic.ui.CoverImage
 import com.nasmusic.ui.LikedCover
+import com.nasmusic.ui.Load
 import com.nasmusic.ui.LoadBox
 import com.nasmusic.ui.LocalApp
 import com.nasmusic.ui.LocalNav
@@ -91,7 +93,10 @@ fun HomeScreen() {
     ReloadOn(playlistsVersion) { loaded.reload() }
     var menu by remember { mutableStateOf(false) }
     var changingPassword by remember { mutableStateOf(false) }
-    if (changingPassword) ChangePasswordDialog { changingPassword = false }
+    // Re-checked after every change so the warning disappears.
+    val passwordInfo = rememberLoad(changingPassword) { app.api.passwordInfo() }
+    val onDefaultPassword = (passwordInfo.state as? Load.Ok)?.value?.isDefault == true
+    if (changingPassword) ChangePasswordDialog(nag = onDefaultPassword) { changingPassword = false }
 
     fun scan(full: Boolean) {
         scope.launch {
@@ -162,6 +167,20 @@ fun HomeScreen() {
                 }
             }
 
+            if (onDefaultPassword) {
+                item {
+                    Row(
+                        Modifier.padding(16.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFF4A3A10)).padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Estás usando la contraseña de serie", fontWeight = FontWeight.Bold)
+                            Text("adminadmin es pública. Cámbiala por una tuya.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE8DDBB))
+                        }
+                        TextButton(onClick = { changingPassword = true }) { Text("Cambiar", color = Color.White, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
             if (home.stats.tracks == 0) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {

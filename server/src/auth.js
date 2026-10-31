@@ -17,11 +17,14 @@ function matchesHash(password, stored) {
   return crypto.timingSafeEqual(got, expected);
 }
 
+export const DEFAULT_PASSWORD = 'adminadmin';
+
 /**
  * Where the password comes from, by priority:
  *  1. MUSIC_PASSWORD (environment) — fixed, cannot be changed from the apps.
  *  2. A scrypt hash in the settings table — set by "Cambiar contraseña".
- *  3. data/password.txt — generated on first start so a fresh install has one.
+ *  3. data/password.txt — left by versions before 1.2.0, which generated one.
+ *  4. DEFAULT_PASSWORD — a fresh install; the apps nag until it is changed.
  * Tokens carry a tag of the current credential, so changing it signs every device out.
  */
 export function createAuth(config, db) {
@@ -29,9 +32,15 @@ export function createAuth(config, db) {
   const writeHash = db.prepare("INSERT INTO settings(key, value) VALUES ('passwordHash', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
   const passwordFile = path.join(config.dataDir, 'password.txt');
 
-  let source; // 'env' | 'hash' | 'file'
-  let credential; // plain password (env/file) or stored hash
-  let generated = null;
+  let source; // 'env' | 'hash' | 'file' | 'default'
+  let credential; // plain password (env/file/default) or stored hash
+
+  // Forgotten password: RESET_PASSWORD=1 goes back to the default on this start.
+  if (process.env.RESET_PASSWORD === '1') {
+    db.prepare("DELETE FROM settings WHERE key = 'passwordHash'").run();
+    fs.rmSync(passwordFile, { force: true });
+    console.log('RESET_PASSWORD=1: la contraseña vuelve a ser la de serie (adminadmin). Quita esa variable del docker-compose.');
+  }
 
   function load() {
     if (config.passwordEnv) {
@@ -45,13 +54,13 @@ export function createAuth(config, db) {
       credential = row.value;
       return;
     }
-    source = 'file';
-    if (fs.existsSync(passwordFile)) credential = fs.readFileSync(passwordFile, 'utf8').trim();
-    else {
-      credential = crypto.randomBytes(6).toString('hex');
-      fs.writeFileSync(passwordFile, credential);
-      generated = credential;
+    if (fs.existsSync(passwordFile)) {
+      source = 'file';
+      credential = fs.readFileSync(passwordFile, 'utf8').trim();
+      return;
     }
+    source = 'default';
+    credential = DEFAULT_PASSWORD;
   }
   load();
 
@@ -90,6 +99,7 @@ export function createAuth(config, db) {
     if (!checkPassword(current)) throw Object.assign(new Error('La contraseña actual no es correcta'), { status: 403 });
     next = String(next ?? '');
     if (next.length < 6) throw Object.assign(new Error('La nueva contraseña debe tener al menos 6 caracteres'), { status: 400 });
+    if (next === DEFAULT_PASSWORD) throw Object.assign(new Error('Elige una contraseña distinta de la de serie'), { status: 400 });
     writeHash.run(hashPassword(next));
     // The plain-text copy is no longer needed.
     fs.rmSync(passwordFile, { force: true });
@@ -113,8 +123,10 @@ export function createAuth(config, db) {
     get source() {
       return source;
     },
-    /** Set only on the start that created password.txt, to print it once. */
-    generated,
+    /** Still on the well-known default: the apps ask to change it. */
+    get isDefault() {
+      return source === 'default';
+    },
     passwordFile,
   };
 }

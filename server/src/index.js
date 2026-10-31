@@ -25,8 +25,8 @@ app.use(express.static(path.join(here, '..', 'public'), { index: 'index.html', m
 app.listen(config.port, '0.0.0.0', () => {
   console.log(`${config.serverName} escuchando en http://0.0.0.0:${config.port}`);
   console.log(`Carpetas de música: ${config.musicDirs.join(', ')}`);
-  if (auth.generated) {
-    console.log(`MUSIC_PASSWORD no está definida. Contraseña generada: ${auth.generated} (guardada en ${auth.passwordFile})`);
+  if (auth.isDefault) {
+    console.log('Contraseña de serie: adminadmin. Cámbiala desde la web o la app al entrar por primera vez.');
   } else if (auth.source === 'file') {
     console.log(`Contraseña en ${auth.passwordFile}. Puedes cambiarla desde la web o la app.`);
   }

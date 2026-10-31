@@ -11,9 +11,9 @@ services:
     ports:
       - "8090:8090"
     environment:
-      # Contraseña para entrar desde la web y la app. Si la quitas, se genera una
-      # y aparece en el registro del contenedor y en /data/password.txt.
-      - MUSIC_PASSWORD=cambia-esta-contraseña
+      # La contraseña de serie es «adminadmin»; cámbiala desde la web o la app al entrar.
+      # Solo si quieres fijarla aquí (y no poder cambiarla desde las apps), descomenta:
+      # - MUSIC_PASSWORD=tu-contraseña
       - SERVER_NAME=Nasfonía
       - TZ=Europe/Madrid
       # Carpeta inicial de música; luego puedes elegir otras desde la web o la app.

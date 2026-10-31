@@ -43,6 +43,7 @@ svg.ic { width: 24px; height: 24px; fill: currentColor; flex: none; display: blo
 .login-card label { font-weight: 600; font-size: 13px; }
 .login-card input { background: var(--elevated); border: 1px solid #555; border-radius: 4px; padding: 12px; outline: none; }
 .login-card input:focus { border-color: var(--text); }
+.login-card p.hint { text-align: left; margin: 4px 0 0; font-size: 13px; }
 
 .btn-primary { background: var(--accent); color: #000; font-weight: 700; border-radius: 999px; padding: 12px 28px; transition: transform .1s, background .15s; }
 .btn-primary:hover { background: var(--accent-hover); transform: scale(1.03); }

@@ -112,6 +112,9 @@ data class FolderListing(
 )
 
 @Serializable
+data class PasswordInfo(val changeable: Boolean = true, val isDefault: Boolean = false)
+
+@Serializable
 data class Ping(val name: String = "", val version: String = "", val app: String = "")
 
 @Serializable

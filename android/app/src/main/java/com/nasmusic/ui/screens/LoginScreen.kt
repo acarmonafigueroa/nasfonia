@@ -126,6 +126,7 @@ fun LoginScreen() {
                 keyboardActions = KeyboardActions(onGo = { if (!busy) submit() }),
                 modifier = Modifier.fillMaxWidth(),
             )
+            Text("¿Primera vez? La contraseña de serie es adminadmin.", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
             Spacer(Modifier.height(4.dp))
             Button(

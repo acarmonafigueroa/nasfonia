@@ -145,8 +145,7 @@ class Api(private val session: Session) {
     suspend fun scanStatus(): ScanStatus = get("/scan")
 
     // --- password -----------------------------------------------------------
-    suspend fun canChangePassword(): Boolean =
-        json.parseToJsonElement(call("GET", "/password")).jsonObject["changeable"]?.jsonPrimitive?.content == "true"
+    suspend fun passwordInfo(): PasswordInfo = get("/password")
 
     /** Changes it and keeps this device signed in with the new token. */
     suspend fun changePassword(current: String, next: String) {

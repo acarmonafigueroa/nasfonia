@@ -22,17 +22,16 @@ Funciona en NAS **UGREEN (UGOS Pro)**, Synology, QNAP, Unraid, TrueNAS o cualqui
 
 1. Abre **Docker → Proyecto → Crear**.
 2. Elige una carpeta para el proyecto, por ejemplo `/volume1/docker/nasfonia`.
-3. Pega el contenido de [`server/docker-compose.yml`](server/docker-compose.yml) y cambia:
-   - `MUSIC_PASSWORD`: la contraseña con la que entrarás.
-   - `/volume1/Music`: la carpeta donde tienes tu música.
+3. Pega el contenido de [`server/docker-compose.yml`](server/docker-compose.yml) y cambia `/volume1/Music` por la carpeta donde tienes tu música.
 4. Pulsa **Desplegar** y abre `http://IP-DE-TU-NAS:8090`.
+5. Entra con la contraseña de serie **`adminadmin`** y cámbiala por una tuya cuando te lo pida.
 
 ### Cualquier otro NAS o Linux con Docker
 
 ```bash
 mkdir nasfonia && cd nasfonia
 curl -O https://raw.githubusercontent.com/acarmonafigueroa/nasfonia/main/server/docker-compose.yml
-# edita la contraseña y las rutas
+# edita las rutas de tu música
 docker compose up -d
 ```
 
@@ -44,14 +43,19 @@ Todo lo que montes bajo `/nas` en el `docker-compose.yml` se puede explorar desd
 
 | Variable | Por defecto | Para qué sirve |
 |---|---|---|
-| `MUSIC_PASSWORD` | se genera y aparece en el registro | Contraseña de acceso |
+| `MUSIC_PASSWORD` | — | Fija la contraseña (entonces no se puede cambiar desde las apps). Sin ella, la de serie es `adminadmin` y se cambia desde la web o la app |
 | `MUSIC_DIR` | `/music` | Carpetas iniciales, separadas por comas |
+| `RESET_PASSWORD` | — | `1` devuelve la contraseña a `adminadmin` al arrancar (quítala después) |
 | `BROWSE_ROOT` | `/nas` | Raíz que se puede explorar al elegir carpetas |
 | `SERVER_NAME` | `Nasfonía` | Nombre que se muestra en la app |
 | `SCAN_INTERVAL_MINUTES` | `60` | Reescaneo automático (0 = desactivado) |
 | `PORT` | `8090` | Puerto |
 
-Si cambias `MUSIC_PASSWORD`, se cierra la sesión en todos los dispositivos.
+### Contraseña
+
+La contraseña de serie es `adminadmin`. Cámbiala desde la web (icono de usuario → **Cambiar contraseña…**) o desde la app (⚙ en Inicio). Al cambiarla se cierra la sesión en el resto de dispositivos. Se guarda cifrada (scrypt).
+
+**¿Se te ha olvidado?** Añade `RESET_PASSWORD=1` en `environment` del docker-compose y vuelve a desplegar: la contraseña vuelve a ser `adminadmin`. Después quita esa línea y despliega otra vez, o se restablecería en cada reinicio.
 
 ### Actualizar
 

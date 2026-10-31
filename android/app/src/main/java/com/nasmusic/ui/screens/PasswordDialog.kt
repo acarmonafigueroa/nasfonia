@@ -28,18 +28,19 @@ import com.nasmusic.ui.theme.Muted
 import kotlinx.coroutines.launch
 
 @Composable
-fun ChangePasswordDialog(onDismiss: () -> Unit) {
+/** [nag]: shown on its own while the server still uses the default password. */
+fun ChangePasswordDialog(nag: Boolean = false, onDismiss: () -> Unit) {
     val app = LocalApp.current
     val toast = LocalToast.current
     val scope = rememberCoroutineScope()
-    val changeable = rememberLoad { app.api.canChangePassword() }
-    var current by remember { mutableStateOf("") }
+    val info = rememberLoad { app.api.passwordInfo() }
+    var current by remember { mutableStateOf(if (nag) "adminadmin" else "") }
     var next by remember { mutableStateOf("") }
     var again by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    if ((changeable.state as? Load.Ok)?.value == false) {
+    if ((info.state as? Load.Ok)?.value?.changeable == false) {
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text("Cambiar contraseña") },
@@ -73,9 +74,10 @@ fun ChangePasswordDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Cambiar contraseña") },
+        title = { Text(if (nag) "Cambia la contraseña de serie" else "Cambiar contraseña") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (nag) Text("Sigues usando adminadmin, que es pública: cualquiera en tu red podría entrar. Elige una propia.", style = MaterialTheme.typography.bodyMedium)
                 PasswordField("Contraseña actual", current) { current = it }
                 PasswordField("Nueva contraseña", next) { next = it }
                 PasswordField("Repite la nueva", again) { again = it }
@@ -88,7 +90,7 @@ fun ChangePasswordDialog(onDismiss: () -> Unit) {
                 if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Cambiar")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancelar") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(if (nag) "Más tarde" else "Cancelar") } },
     )
 }
 

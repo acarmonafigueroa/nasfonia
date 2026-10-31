@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 export function apiRouter({ lib, scanner, folders, auth, config }) {
   const r = express.Router();
@@ -18,7 +18,7 @@ export function apiRouter({ lib, scanner, folders, auth, config }) {
       // Slows down password guessing.
       return setTimeout(() => res.status(401).json({ error: 'Contraseña incorrecta' }), 800);
     }
-    res.json({ token: auth.issue(req.body?.device), name: config.serverName, version: VERSION });
+    res.json({ token: auth.issue(req.body?.device), name: config.serverName, version: VERSION, defaultPassword: auth.isDefault });
   });
 
   r.use(auth.middleware);
@@ -119,7 +119,7 @@ export function apiRouter({ lib, scanner, folders, auth, config }) {
   }));
 
   // --- password -----------------------------------------------------------
-  r.get('/password', (req, res) => res.json({ changeable: auth.source !== 'env' }));
+  r.get('/password', (req, res) => res.json({ changeable: auth.source !== 'env', isDefault: auth.isDefault }));
   r.post('/password', (req, res) => {
     try {
       auth.changePassword(req.body?.current, req.body?.next);

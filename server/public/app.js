@@ -904,7 +904,7 @@ async function openFolders() {
   render();
 }
 
-async function openChangePassword() {
+async function openChangePassword({ nag = false } = {}) {
   const { changeable } = await api('/password');
   const modal = $('#modal');
   const close = () => modal.classList.add('hidden');
@@ -917,8 +917,9 @@ async function openChangePassword() {
     modal.onclick = (e) => e.target === modal && close();
     return;
   }
-  modal.innerHTML = `<form class="modal-card pw-form"><h2>Cambiar contraseña</h2>
-    <label>Contraseña actual<input type="password" name="current" autocomplete="current-password" required></label>
+  modal.innerHTML = `<form class="modal-card pw-form"><h2>${nag ? 'Cambia la contraseña de serie' : 'Cambiar contraseña'}</h2>
+    ${nag ? '<p class="muted">Sigues usando <strong>adminadmin</strong>, que es pública: cualquiera en tu red podría entrar. Elige una propia.</p>' : ''}
+    <label>Contraseña actual<input type="password" name="current" autocomplete="current-password" value="${nag ? 'adminadmin' : ''}" required></label>
     <label>Nueva contraseña<input type="password" name="next" autocomplete="new-password" minlength="6" required></label>
     <label>Repite la nueva<input type="password" name="again" autocomplete="new-password" minlength="6" required></label>
     <p class="muted">Se cerrará la sesión en el resto de dispositivos.</p>
@@ -927,7 +928,8 @@ async function openChangePassword() {
   modal.classList.remove('hidden');
   const form = modal.querySelector('form');
   const error = form.querySelector('.error');
-  form.current.focus();
+  (nag ? form.next : form.current).focus();
+  if (nag) form.querySelector('.link').textContent = 'Más tarde';
   form.querySelector('.link').onclick = close;
   modal.onclick = (e) => e.target === modal && close();
   form.onsubmit = async (e) => {
@@ -1135,6 +1137,8 @@ async function start() {
   favList.forEach((t) => favs.add(t.id));
   renderLibrary();
   route();
+  // Ask once per page load while the well-known default is still in use.
+  api('/password').then((p) => p.isDefault && openChangePassword({ nag: true })).catch(() => {});
 }
 
 $('#login-form').addEventListener('submit', async (e) => {

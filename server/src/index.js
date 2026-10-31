@@ -15,7 +15,7 @@ const db = openDb(path.join(config.dataDir, 'library.db'));
 const lib = createLibrary(db);
 const folders = createFolders(db, config);
 const scanner = new Scanner(db, config);
-const auth = createAuth(config);
+const auth = createAuth(config, db);
 
 const app = express();
 app.disable('x-powered-by');
@@ -25,8 +25,10 @@ app.use(express.static(path.join(here, '..', 'public'), { index: 'index.html', m
 app.listen(config.port, '0.0.0.0', () => {
   console.log(`${config.serverName} escuchando en http://0.0.0.0:${config.port}`);
   console.log(`Carpetas de música: ${config.musicDirs.join(', ')}`);
-  if (!config.passwordFromEnv) {
-    console.log(`MUSIC_PASSWORD no está definida. Contraseña generada: ${config.password} (guardada en ${path.join(config.dataDir, 'password.txt')})`);
+  if (auth.generated) {
+    console.log(`MUSIC_PASSWORD no está definida. Contraseña generada: ${auth.generated} (guardada en ${auth.passwordFile})`);
+  } else if (auth.source === 'file') {
+    console.log(`Contraseña en ${auth.passwordFile}. Puedes cambiarla desde la web o la app.`);
   }
   scanner.scan();
   if (config.scanIntervalMin > 0) setInterval(() => scanner.scan(), config.scanIntervalMin * 60_000);

@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 export function apiRouter({ lib, scanner, folders, auth, config }) {
   const r = express.Router();
@@ -117,6 +117,19 @@ export function apiRouter({ lib, scanner, folders, auth, config }) {
     scanner.scan();
     res.json(await folders.info());
   }));
+
+  // --- password -----------------------------------------------------------
+  r.get('/password', (req, res) => res.json({ changeable: auth.source !== 'env' }));
+  r.post('/password', (req, res) => {
+    try {
+      auth.changePassword(req.body?.current, req.body?.next);
+      // Every other device is signed out; this one gets a fresh token.
+      res.json({ token: auth.issue(req.body?.device) });
+    } catch (e) {
+      const status = e.status || 500;
+      setTimeout(() => res.status(status).json({ error: e.message }), status === 403 ? 800 : 0);
+    }
+  });
 
   // --- scan ---------------------------------------------------------------
   r.get('/scan', (req, res) => res.json(scanner.status));

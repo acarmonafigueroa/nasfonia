@@ -226,6 +226,14 @@ class PlayerController(private val context: Context, private val api: Api) {
         if (cur + 1 < c.mediaItemCount) c.removeMediaItems(cur + 1, c.mediaItemCount)
     }
 
+    /** Stream and cover URLs carry the token; rebuild the queue after it changes. */
+    fun refreshUrls() = withController { c ->
+        for (i in 0 until c.mediaItemCount) {
+            val t = trackOf(c.getMediaItemAt(i)) ?: continue
+            c.replaceMediaItem(i, toItem(t))
+        }
+    }
+
     fun clearError() {
         _state.value = _state.value.copy(error = null)
     }

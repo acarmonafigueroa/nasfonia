@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
@@ -89,6 +90,8 @@ fun HomeScreen() {
     val playlistsVersion by app.playlistsVersion.collectAsState()
     ReloadOn(playlistsVersion) { loaded.reload() }
     var menu by remember { mutableStateOf(false) }
+    var changingPassword by remember { mutableStateOf(false) }
+    if (changingPassword) ChangePasswordDialog { changingPassword = false }
 
     fun scan(full: Boolean) {
         scope.launch {
@@ -130,6 +133,11 @@ fun HomeScreen() {
                                     text = { Text("Carpetas de música") },
                                     leadingIcon = { Icon(Icons.Rounded.Folder, null) },
                                     onClick = { menu = false; nav.navigate(Routes.FOLDERS) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Cambiar contraseña") },
+                                    leadingIcon = { Icon(Icons.Rounded.Key, null) },
+                                    onClick = { menu = false; changingPassword = true },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Volver a escanear la biblioteca") },

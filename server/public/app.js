@@ -904,9 +904,66 @@ async function openFolders() {
   render();
 }
 
+async function openChangePassword() {
+  const { changeable } = await api('/password');
+  const modal = $('#modal');
+  const close = () => modal.classList.add('hidden');
+  if (!changeable) {
+    modal.innerHTML = `<div class="modal-card"><h2>Cambiar contraseña</h2>
+      <p class="muted">La contraseña está fijada con <code>MUSIC_PASSWORD</code> en el docker-compose del servidor. Cámbiala allí y vuelve a desplegar el contenedor.</p>
+      <div class="row-btns"><button class="btn-primary">Entendido</button></div></div>`;
+    modal.classList.remove('hidden');
+    modal.querySelector('button').onclick = close;
+    modal.onclick = (e) => e.target === modal && close();
+    return;
+  }
+  modal.innerHTML = `<form class="modal-card pw-form"><h2>Cambiar contraseña</h2>
+    <label>Contraseña actual<input type="password" name="current" autocomplete="current-password" required></label>
+    <label>Nueva contraseña<input type="password" name="next" autocomplete="new-password" minlength="6" required></label>
+    <label>Repite la nueva<input type="password" name="again" autocomplete="new-password" minlength="6" required></label>
+    <p class="muted">Se cerrará la sesión en el resto de dispositivos.</p>
+    <p class="error"></p>
+    <div class="row-btns"><button type="button" class="link">Cancelar</button><button class="btn-primary" type="submit">Cambiar</button></div></form>`;
+  modal.classList.remove('hidden');
+  const form = modal.querySelector('form');
+  const error = form.querySelector('.error');
+  form.current.focus();
+  form.querySelector('.link').onclick = close;
+  modal.onclick = (e) => e.target === modal && close();
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    error.textContent = '';
+    if (form.next.value !== form.again.value) {
+      error.textContent = 'Las contraseñas nuevas no coinciden';
+      return;
+    }
+    const btn = form.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await api('/password', { method: 'POST', body: { current: form.current.value, next: form.next.value, device: 'web' } });
+      token = r.token;
+      store.set('nm.token', token);
+      close();
+      toast('Contraseña cambiada');
+      // Covers and the audio carry the token in their URLs.
+      route();
+      if (current()) {
+        const t = audio.currentTime;
+        const playing = !audio.paused;
+        playIndex(player.index, { autoplay: playing, at: t });
+      }
+    } catch (err) {
+      error.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
 function userMenu(anchor) {
   openMenu(anchor, [
     { text: 'Carpetas de música…', icon: 'library', run: openFolders },
+    { text: 'Cambiar contraseña…', icon: 'edit', run: openChangePassword },
     { text: 'Volver a escanear la biblioteca', icon: 'refresh', run: () => startScan(false) },
     { text: 'Escaneo completo (releer etiquetas)', icon: 'refresh', run: () => startScan(true) },
     '-',

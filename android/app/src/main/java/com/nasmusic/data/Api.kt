@@ -144,6 +144,21 @@ class Api(private val session: Session) {
 
     suspend fun scanStatus(): ScanStatus = get("/scan")
 
+    // --- password -----------------------------------------------------------
+    suspend fun canChangePassword(): Boolean =
+        json.parseToJsonElement(call("GET", "/password")).jsonObject["changeable"]?.jsonPrimitive?.content == "true"
+
+    /** Changes it and keeps this device signed in with the new token. */
+    suspend fun changePassword(current: String, next: String) {
+        val body = buildJsonObject {
+            put("current", current)
+            put("next", next)
+            put("device", android.os.Build.MODEL ?: "android")
+        }.toString()
+        val res: LoginResponse = json.decodeFromString(call("POST", "/password", body))
+        session.save(session.serverUrl, session.serverName, res.token)
+    }
+
     // --- music folders ------------------------------------------------------
     suspend fun folders(): FoldersInfo = get("/folders")
 

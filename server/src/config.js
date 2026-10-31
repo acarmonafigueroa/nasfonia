@@ -28,7 +28,7 @@ export const config = {
   dataDir,
   coversDir: path.join(dataDir, 'covers'),
   scanIntervalMin: Number(process.env.SCAN_INTERVAL_MINUTES ?? 60),
-  passwordFromEnv: Boolean(process.env.MUSIC_PASSWORD),
-  password: process.env.MUSIC_PASSWORD || persisted('password.txt', () => crypto.randomBytes(6).toString('hex')),
+  // When set, it always wins and cannot be changed from the apps (see auth.js).
+  passwordEnv: process.env.MUSIC_PASSWORD || null,
   secret: persisted('secret.key', () => crypto.randomBytes(32).toString('hex')),
 };

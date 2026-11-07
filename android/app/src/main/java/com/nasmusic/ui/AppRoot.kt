@@ -117,10 +117,18 @@ private fun MainScaffold(app: NasMusicApp) {
                                 NavigationBarItem(
                                     selected = current == tab.route,
                                     onClick = {
-                                        nav.navigate(tab.route) {
-                                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                        if (tab.route == Routes.HOME) {
+                                            if (!nav.popBackStack(Routes.HOME, inclusive = false)) {
+                                                nav.navigate(Routes.HOME) {
+                                                    popUpTo(nav.graph.findStartDestination().id) { inclusive = true }
+                                                    launchSingleTop = true
+                                                }
+                                            }
+                                        } else {
+                                            nav.navigate(tab.route) {
+                                                popUpTo(Routes.HOME) { inclusive = false }
+                                                launchSingleTop = true
+                                            }
                                         }
                                     },
                                     icon = { Icon(tab.icon, null) },

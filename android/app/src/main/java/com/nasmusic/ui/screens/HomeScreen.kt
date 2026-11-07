@@ -226,7 +226,17 @@ fun HomeScreen() {
                 item { AlbumRow(home.recentAlbums) }
             }
             if (home.playlists.isNotEmpty()) {
-                item { SectionTitle("Tus playlists", onMore = { nav.navigate(Routes.LIBRARY) }) }
+                item {
+                    SectionTitle(
+                        "Tus playlists",
+                        onMore = {
+                            nav.navigate(Routes.LIBRARY) {
+                                popUpTo(Routes.HOME) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(home.playlists, key = { it.id }) { PlaylistCard(it) }

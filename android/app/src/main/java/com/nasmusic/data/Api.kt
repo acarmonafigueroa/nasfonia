@@ -53,7 +53,10 @@ class Api(private val session: Session) {
     fun coverUrl(albumId: Long?): String? =
         albumId?.let { "$base/api/cover/$it?token=${enc(token)}" }
 
-    fun streamUrl(trackId: Long): String = "$base/api/stream/$trackId?token=${enc(token)}"
+    fun streamUrl(trackId: Long, raw: Boolean = false): String {
+        val br = if (!raw && session.streamBitrate > 0) "&bitrate=${session.streamBitrate}" else ""
+        return "$base/api/stream/$trackId?token=${enc(token)}$br"
+    }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
@@ -191,6 +194,8 @@ class Api(private val session: Session) {
     suspend fun genreTracks(name: String): List<Track> = get("/genres/${enc(name).replace("+", "%20")}/tracks")
     suspend fun search(q: String): SearchResult = get("/search?q=${enc(q)}")
     suspend fun randomTracks(limit: Int = 100): List<Track> = get("/tracks/random?limit=$limit")
+    suspend fun radio(trackId: Long, limit: Int = 50): List<Track> = get("/tracks/$trackId/radio?limit=$limit")
+    suspend fun lyrics(trackId: Long): LyricsResponse = get("/lyrics/$trackId")
 
     // --- favorites & plays --------------------------------------------------
     suspend fun favorites(): List<Track> = get("/favorites")
@@ -217,6 +222,11 @@ class Api(private val session: Session) {
         call("PATCH", "/playlists/$id", buildJsonObject { put("name", name) }.toString())
     }
 
+    suspend fun setPlaylistPublic(id: Long, isPublic: Boolean): Playlist {
+        val body = buildJsonObject { put("isPublic", isPublic) }.toString()
+        return json.decodeFromString(call("PATCH", "/playlists/$id", body))
+    }
+
     suspend fun deletePlaylist(id: Long) {
         call("DELETE", "/playlists/$id")
     }
@@ -228,6 +238,14 @@ class Api(private val session: Session) {
 
     suspend fun removeFromPlaylist(id: Long, position: Int) {
         call("DELETE", "/playlists/$id/tracks/$position")
+    }
+
+    suspend fun movePlaylistTrack(id: Long, fromPosition: Int, toIndex: Int): Playlist {
+        val body = buildJsonObject {
+            put("from", fromPosition)
+            put("to", toIndex)
+        }.toString()
+        return json.decodeFromString(call("POST", "/playlists/$id/move", body))
     }
 
     // --- scan ---------------------------------------------------------------

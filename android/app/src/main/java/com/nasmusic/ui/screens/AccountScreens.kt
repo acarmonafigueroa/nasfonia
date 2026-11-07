@@ -1,5 +1,6 @@
 package com.nasmusic.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -262,5 +264,49 @@ fun AddressesDialog(onDismiss: () -> Unit) {
             }) { if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Guardar") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun AudioQualityDialog(onDismiss: () -> Unit) {
+    val app = LocalApp.current
+    val toast = LocalToast.current
+    var selected by remember { mutableStateOf(app.session.streamBitrate) }
+    val options = listOf(
+        Triple(0, "Original (sin comprimir)", "Envía el archivo original del NAS (FLAC, MP3, etc.)"),
+        Triple(320, "Alta (320 kbps)", "Convierte al vuelo en el servidor con FFmpeg"),
+        Triple(192, "Estándar (192 kbps)", "Equilibrio entre calidad y consumo de datos"),
+        Triple(128, "Ahorro de datos (128 kbps)", "Ideal fuera de casa con cobertura móvil limitada"),
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Calidad de audio") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                options.forEach { (kbps, title, desc) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { selected = kbps }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected == kbps, onClick = { selected = kbps })
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(title, style = MaterialTheme.typography.bodyLarge)
+                            Text(desc, color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                app.session.setBitrate(selected)
+                app.player.refreshUrls(resume = true)
+                toast(if (selected == 0) "Calidad original activada" else "Calidad ajustada a $selected kbps")
+                onDismiss()
+            }) { Text("Guardar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }

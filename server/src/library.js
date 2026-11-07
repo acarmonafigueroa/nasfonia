@@ -28,12 +28,14 @@ const ARTIST_SELECT = `
   FROM artists ar`;
 
 const PLAYLIST_SELECT = `
-  SELECT p.id, p.name, p.created_at AS createdAt, p.updated_at AS updatedAt,
+  SELECT p.id, p.name, p.user_id AS ownerId, u.username AS owner, p.is_public AS isPublic,
+    p.created_at AS createdAt, p.updated_at AS updatedAt,
     (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) AS trackCount,
     (SELECT COALESCE(SUM(t.duration), 0) FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id WHERE pt.playlist_id = p.id) AS duration,
     (SELECT t.album_id FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id JOIN albums a ON a.id = t.album_id
        WHERE pt.playlist_id = p.id AND a.cover IS NOT NULL ORDER BY pt.position LIMIT 1) AS coverAlbumId
-  FROM playlists p`;
+  FROM playlists p
+  LEFT JOIN users u ON u.id = p.user_id`;
 
 const ALBUM_SORT = {
   title: 'al.title COLLATE NOCASE',
@@ -54,6 +56,7 @@ const ALBUM_TRACK_ORDER = 'ORDER BY COALESCE(t.disc_no, 1), COALESCE(t.track_no,
 
 const track = (r) => r && { ...r, hasCover: Boolean(r.hasCover), favorite: Boolean(r.favorite) };
 const album = (r) => r && { ...r, hasCover: Boolean(r.hasCover) };
+const playlistRow = (r, uid) => r && { ...r, isPublic: Boolean(r.isPublic), isMine: r.ownerId === uid };
 const int = (v, def, max) => Math.min(Math.max(Number.parseInt(v, 10) || def, 0), max);
 
 /** orUser(id) gives the library as that user sees it: their favorites, playlists and history. */
@@ -72,8 +75,9 @@ function libraryFor(db, uid) {
   const get = (sql, ...p) => db.prepare(sql).get(...p);
   const now = () => Date.now();
   const TRACK_SELECT = trackSelect(uid);
-  const MY_PLAYLISTS = `${PLAYLIST_SELECT} WHERE p.user_id = ${uid}`;
+  const MY_PLAYLISTS = `${PLAYLIST_SELECT} WHERE (p.user_id = ${uid} OR p.is_public = 1)`;
   const MY_PLAYS = `(SELECT * FROM plays WHERE user_id = ${uid})`;
+  const mapPl = (r) => playlistRow(r, uid);
 
   const lib = {
     stats() {
@@ -156,12 +160,51 @@ function libraryFor(db, uid) {
         artists: all(`${ARTIST_SELECT} WHERE ${like('norm(ar.name)')} AND ar.id IN (SELECT artist_id FROM tracks) LIMIT ?`, ...params, limit),
         albums: all(`${ALBUM_SELECT} WHERE ${like("norm(al.title || ' ' || ar.name)")} GROUP BY al.id LIMIT ?`, ...params, limit).map(album),
         tracks: all(`${TRACK_SELECT} WHERE ${like("norm(t.title || ' ' || ar.name || ' ' || al.title)")} LIMIT ?`, ...params, limit * 2).map(track),
-        playlists: all(`${MY_PLAYLISTS} AND ${like('norm(p.name)')} LIMIT ?`, ...params, limit),
+        playlists: all(`${MY_PLAYLISTS} AND ${like('norm(p.name)')} LIMIT ?`, ...params, limit).map(mapPl),
       };
     },
 
     randomTracks(limit) {
       return all(`${TRACK_SELECT} ORDER BY RANDOM() LIMIT ?`, int(limit, 100, 1000)).map(track);
+    },
+
+    /** Builds a "Track Radio" queue starting with the seed track, followed by similar tracks (artist, genre, era). */
+    radio(trackId, limit = 50) {
+      const max = int(limit, 50, 200);
+      const seed = lib.track(trackId);
+      if (!seed) return lib.randomTracks(max);
+      const similar = all(
+        `${TRACK_SELECT}
+         WHERE t.id != ? AND (
+           t.artist_id = ?
+           OR (t.genre IS NOT NULL AND t.genre = ?)
+           OR (t.year IS NOT NULL AND ? IS NOT NULL AND ABS(t.year - ?) <= 5)
+         )
+         ORDER BY
+           ((t.artist_id = ?) * 2 + (t.genre IS NOT NULL AND t.genre = ?) * 2 + (f.track_id IS NOT NULL)) DESC,
+           RANDOM()
+         LIMIT ?`,
+        seed.id,
+        seed.artistId,
+        seed.genre ?? '',
+        seed.year,
+        seed.year ?? 0,
+        seed.artistId,
+        seed.genre ?? '',
+        max - 1,
+      ).map(track);
+      const seen = new Set([seed.id, ...similar.map((t) => t.id)]);
+      if (similar.length < max - 1) {
+        const extra = all(`${TRACK_SELECT} ORDER BY RANDOM() LIMIT ?`, max).map(track);
+        for (const t of extra) {
+          if (similar.length >= max - 1) break;
+          if (!seen.has(t.id)) {
+            seen.add(t.id);
+            similar.push(t);
+          }
+        }
+      }
+      return [seed, ...similar];
     },
 
     // --- favorites -------------------------------------------------------
@@ -206,11 +249,11 @@ function libraryFor(db, uid) {
 
     // --- playlists -------------------------------------------------------
     playlists() {
-      return all(`${MY_PLAYLISTS} ORDER BY p.updated_at DESC`);
+      return all(`${MY_PLAYLISTS} ORDER BY (p.user_id = ${uid}) DESC, p.updated_at DESC`).map(mapPl);
     },
 
     playlist(id) {
-      const p = get(`${MY_PLAYLISTS} AND p.id = ?`, id);
+      const p = mapPl(get(`${MY_PLAYLISTS} AND p.id = ?`, id));
       if (!p) return null;
       p.tracks = all(
         `${TRACK_SELECT.replace('SELECT t.id', 'SELECT pt.position, t.id')} JOIN playlist_tracks pt ON pt.track_id = t.id
@@ -220,15 +263,25 @@ function libraryFor(db, uid) {
       return p;
     },
 
-    createPlaylist(name, trackIds = []) {
-      const { lastInsertRowid } = db.prepare('INSERT INTO playlists(user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(uid, name, now(), now());
+    createPlaylist(name, trackIds = [], isPublic = false) {
+      const { lastInsertRowid } = db
+        .prepare('INSERT INTO playlists(user_id, name, is_public, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(uid, name, isPublic ? 1 : 0, now(), now());
       const id = Number(lastInsertRowid);
       if (trackIds.length) lib.addToPlaylist(id, trackIds);
       return lib.playlist(id);
     },
 
+    updatePlaylist(id, { name, isPublic }) {
+      const cur = get('SELECT id, name, is_public FROM playlists WHERE id = ? AND user_id = ?', id, uid);
+      if (!cur) return false;
+      const nextName = name ? name : cur.name;
+      const nextPub = isPublic == null ? cur.is_public : isPublic ? 1 : 0;
+      return db.prepare('UPDATE playlists SET name = ?, is_public = ?, updated_at = ? WHERE id = ? AND user_id = ?').run(nextName, nextPub, now(), id, uid).changes > 0;
+    },
+
     renamePlaylist(id, name) {
-      return db.prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?').run(name, now(), id, uid).changes > 0;
+      return lib.updatePlaylist(id, { name });
     },
 
     deletePlaylist(id) {

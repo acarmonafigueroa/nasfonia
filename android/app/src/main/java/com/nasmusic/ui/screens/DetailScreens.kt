@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -180,37 +181,66 @@ fun PlaylistScreen(id: Long) {
 
     DetailScaffold {
         LoadBox(loaded) { p ->
+            val subtitle = buildString {
+                append(if (p.isPublic) "Playlist pública" else "Playlist")
+                if (!p.isMine && !p.owner.isNullOrBlank()) append(" · de ${p.owner}")
+            }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 item {
                     PageHeader(
                         tint = hueColor(p.id + 3),
                         title = p.name,
-                        subtitle = "Playlist",
+                        subtitle = subtitle,
                         meta = listOfNotNull(plural(p.trackCount, "canción", "canciones"), p.duration.takeIf { it > 0 }?.let(::formatLong)).joinToString(" · "),
                         cover = { CoverImage(p.coverAlbumId, p.coverAlbumId != null, it, RoundedCornerShape(6.dp), Icons.AutoMirrored.Rounded.QueueMusic) },
                     )
                 }
                 item {
                     PlayBar(p.tracks) {
-                        Box {
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Más opciones", tint = Muted) }
-                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Cambiar nombre") },
-                                    leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                                    onClick = { menu = false; renaming = true },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Eliminar playlist", color = MaterialTheme.colorScheme.error) },
-                                    leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                                    onClick = { menu = false; deleting = true },
-                                )
+                        if (p.isMine) {
+                            Box {
+                                IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Más opciones", tint = Muted) }
+                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Cambiar nombre") },
+                                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                        onClick = { menu = false; renaming = true },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (p.isPublic) "Hacer privada" else "Compartir con usuarios del NAS") },
+                                        leadingIcon = { Icon(Icons.Rounded.Public, null) },
+                                        onClick = {
+                                            menu = false
+                                            scope.launch {
+                                                runCatching { app.api.setPlaylistPublic(p.id, !p.isPublic) }
+                                                    .onSuccess {
+                                                        app.playlistsChanged()
+                                                        toast(if (!p.isPublic) "Playlist compartida en el NAS" else "La playlist vuelve a ser privada")
+                                                    }
+                                                    .onFailure { toast(it.message ?: "Error") }
+                                            }
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Eliminar playlist", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = { menu = false; deleting = true },
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 itemsIndexed(p.tracks, key = { _, t -> "${t.position}-${t.id}" }) { i, t ->
-                    TrackRow(t, onClick = { app.player.play(p.tracks, i) }, playlistId = p.id, onRemoved = loaded.reload)
+                    TrackRow(
+                        track = t,
+                        onClick = { app.player.play(p.tracks, i) },
+                        playlistId = p.id,
+                        indexInPlaylist = i,
+                        playlistSize = p.tracks.size,
+                        canEditPlaylist = p.isMine,
+                        onRemoved = loaded.reload,
+                    )
                 }
                 if (p.tracks.isEmpty()) {
                     item {

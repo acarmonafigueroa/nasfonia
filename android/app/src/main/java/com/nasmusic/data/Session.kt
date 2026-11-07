@@ -23,6 +23,10 @@ class Session(context: Context) {
     var username: String = prefs.getString("user", "") ?: ""
         private set
 
+    /** 0 = original file, 320 / 192 / 128 = server-side MP3 transcode bitrate in kbps. */
+    var streamBitrate: Int = prefs.getInt("bitrate", 0)
+        private set
+
     /** Not persisted: picked again on every start and network change. */
     @Volatile
     var activeUrl: String = serverUrl
@@ -59,8 +63,47 @@ class Session(context: Context) {
         prefs.edit().putString("server", url).putString("alt", alt).apply()
     }
 
+    fun setBitrate(kbps: Int) {
+        streamBitrate = kbps
+        prefs.edit().putInt("bitrate", kbps).apply()
+    }
+
+    data class SavedQueue(
+        val tracksJson: String,
+        val index: Int,
+        val positionMs: Long,
+        val shuffle: Boolean,
+        val repeatMode: Int,
+    )
+
+    fun saveQueue(tracksJson: String, index: Int, positionMs: Long, shuffle: Boolean, repeatMode: Int) {
+        prefs.edit()
+            .putString("q_tracks", tracksJson)
+            .putInt("q_index", index)
+            .putLong("q_pos", positionMs)
+            .putBoolean("q_shuffle", shuffle)
+            .putInt("q_repeat", repeatMode)
+            .apply()
+    }
+
+    fun loadQueue(): SavedQueue? {
+        val json = prefs.getString("q_tracks", null) ?: return null
+        return SavedQueue(
+            tracksJson = json,
+            index = prefs.getInt("q_index", 0),
+            positionMs = prefs.getLong("q_pos", 0L),
+            shuffle = prefs.getBoolean("q_shuffle", false),
+            repeatMode = prefs.getInt("q_repeat", 0),
+        )
+    }
+
     fun logout() {
-        prefs.edit().remove("token").apply()
+        prefs.edit()
+            .remove("token")
+            .remove("q_tracks")
+            .remove("q_index")
+            .remove("q_pos")
+            .apply()
         _token.value = null
     }
 }

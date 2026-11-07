@@ -5,6 +5,8 @@ LABEL org.opencontainers.image.title="Nasfonía" \
       org.opencontainers.image.source="https://github.com/acarmonafigueroa/nasfonia" \
       org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8090 \

@@ -73,7 +73,8 @@
     </nav>
 
     <footer class="player" id="player">
-      <div class="np">
+      <button class="icon-btn np-collapse" id="btn-collapse-player" title="Cerrar"><span data-icon="chevronDown"></span></button>
+      <div class="np" id="np-bar">
         <div class="np-cover cover" id="np-cover"></div>
         <div class="np-text">
           <a class="np-title" id="np-title"></a>
@@ -96,6 +97,7 @@
         </div>
       </div>
       <div class="extras">
+        <button class="icon-btn" id="btn-lyrics" title="Letra"><span data-icon="lyrics"></span></button>
         <button class="icon-btn" id="btn-queue" title="Cola"><span data-icon="queue"></span></button>
         <button class="icon-btn" id="btn-mute" title="Silenciar"><span data-icon="volume"></span></button>
         <input type="range" id="volume" class="slider volume" min="0" max="100" value="80" aria-label="Volumen">

@@ -98,6 +98,13 @@ export function createAuth(config, db) {
   const attempts = new Map();
   const WINDOW = 15 * 60_000;
   const MAX_FAILS = 8;
+  function pruneAttempts() {
+    if (attempts.size < 200) return;
+    const now = Date.now();
+    for (const [k, v] of attempts) {
+      if (now - v.first > WINDOW) attempts.delete(k);
+    }
+  }
   function lockedFor(ip) {
     const a = attempts.get(ip);
     if (!a) return 0;
@@ -108,6 +115,7 @@ export function createAuth(config, db) {
     return a.fails >= MAX_FAILS ? Math.ceil((a.first + WINDOW - Date.now()) / 60_000) : 0;
   }
   function failed(ip) {
+    pruneAttempts();
     const a = attempts.get(ip);
     if (!a || Date.now() - a.first > WINDOW) attempts.set(ip, { first: Date.now(), fails: 1 });
     else a.fails++;
@@ -191,6 +199,7 @@ export function createAuth(config, db) {
       if (u.is_admin && q.admins.get().n <= 1) throw httpError(400, 'Tiene que quedar al menos un administrador');
       db.exec('BEGIN');
       try {
+        db.prepare('DELETE FROM favorites WHERE user_id = ?').run(id);
         db.prepare('DELETE FROM plays WHERE user_id = ?').run(id);
         db.prepare('DELETE FROM playlists WHERE user_id = ?').run(id);
         db.prepare('DELETE FROM users WHERE id = ?').run(id);

@@ -115,4 +115,31 @@ function migrate(db) {
       COMMIT;
     `);
   }
+  if (version < 2) {
+    // 1.4.0 — shared playlists and extra indexes for genres & recents.
+    db.exec(`
+      BEGIN;
+      ALTER TABLE playlists ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre);
+      CREATE INDEX IF NOT EXISTS tracks_added ON tracks(added_at);
+      PRAGMA user_version = 2;
+      COMMIT;
+    `);
+  }
+  if (version < 3) {
+    // 1.4.1 — automatic online metadata cache (cover checks + synced lyrics).
+    db.exec(`
+      BEGIN;
+      ALTER TABLE albums ADD COLUMN cover_checked_at INTEGER;
+      CREATE TABLE IF NOT EXISTS track_lyrics (
+        track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+        synced     INTEGER NOT NULL DEFAULT 0,
+        lines_json TEXT NOT NULL,
+        source     TEXT,
+        fetched_at INTEGER NOT NULL
+      );
+      PRAGMA user_version = 3;
+      COMMIT;
+    `);
+  }
 }

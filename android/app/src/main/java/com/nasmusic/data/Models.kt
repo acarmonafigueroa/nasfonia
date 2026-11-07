@@ -56,8 +56,17 @@ data class Playlist(
     val trackCount: Int = 0,
     val duration: Double = 0.0,
     val coverAlbumId: Long? = null,
+    val isPublic: Boolean = false,
+    val isMine: Boolean = true,
+    val owner: String? = null,
     val tracks: List<Track> = emptyList(),
 )
+
+@Serializable
+data class LyricLine(val timeMs: Long? = null, val text: String = "")
+
+@Serializable
+data class LyricsResponse(val synced: Boolean = false, val lines: List<LyricLine> = emptyList())
 
 @Serializable
 data class Genre(val name: String, val trackCount: Int = 0, val coverAlbumId: Long? = null)

@@ -18,14 +18,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -33,6 +37,8 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -46,6 +52,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -63,11 +70,14 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import com.nasmusic.player.PlayerState
 import com.nasmusic.ui.CoverImage
+import com.nasmusic.ui.Load
 import com.nasmusic.ui.LocalApp
 import com.nasmusic.ui.LocalNav
+import com.nasmusic.ui.LocalToast
 import com.nasmusic.ui.Routes
 import com.nasmusic.ui.TrackMenuButton
 import com.nasmusic.ui.formatTime
+import com.nasmusic.ui.rememberLoad
 import com.nasmusic.ui.theme.Accent
 import com.nasmusic.ui.theme.Muted
 import com.nasmusic.ui.theme.hueColor
@@ -110,10 +120,13 @@ fun MiniPlayer(onOpen: () -> Unit) {
 fun NowPlayingScreen(onClose: () -> Unit) {
     val app = LocalApp.current
     val nav = LocalNav.current
+    val toast = LocalToast.current
     val s by app.player.state.collectAsState()
     val favorites by app.favorites.collectAsState()
     val t = s.current ?: return
     var showQueue by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
+    var showSleepDialog by remember { mutableStateOf(false) }
     // While dragging, the slider shows the finger's position instead of playback.
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
@@ -136,15 +149,24 @@ fun NowPlayingScreen(onClose: () -> Unit) {
         }
 
         Spacer(Modifier.weight(1f))
-        CoverImage(
-            t.albumId,
-            t.hasCover,
-            Modifier.fillMaxWidth().aspectRatio(1f).clickable {
-                onClose()
-                nav.navigate(Routes.album(t.albumId))
-            },
-            RoundedCornerShape(8.dp),
-        )
+        if (showLyrics) {
+            LyricsBox(
+                trackId = t.id,
+                positionMs = s.positionMs,
+                onSeek = { ms -> app.player.seekTo(ms) },
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            )
+        } else {
+            CoverImage(
+                t.albumId,
+                t.hasCover,
+                Modifier.fillMaxWidth().aspectRatio(1f).clickable {
+                    onClose()
+                    nav.navigate(Routes.album(t.albumId))
+                },
+                RoundedCornerShape(8.dp),
+            )
+        }
         Spacer(Modifier.weight(1f))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -195,13 +217,26 @@ fun NowPlayingScreen(onClose: () -> Unit) {
 
         Controls(s)
 
+        val sleepActive = s.sleepRemainingMs != null || s.sleepEndOfTrack
+        val sleepLabel = when {
+            s.sleepEndOfTrack -> "Fin de pista"
+            s.sleepRemainingMs != null -> "${((s.sleepRemainingMs!! + 59_000L) / 60_000L)} min"
+            else -> null
+        }
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val qualityTag = if (app.session.streamBitrate > 0) "${app.session.streamBitrate} kbps" else listOfNotNull(t.format?.uppercase(), t.bitrate?.let { "$it kbps" }).joinToString(" · ")
             Text(
-                listOfNotNull(t.format?.uppercase(), t.bitrate?.let { "$it kbps" }).joinToString(" · "),
-                color = Muted,
+                listOfNotNull(qualityTag.ifBlank { null }, sleepLabel?.let { "☾ $it" }).joinToString(" · "),
+                color = if (sleepActive) Accent else Muted,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.weight(1f),
             )
+            IconButton(onClick = { showLyrics = !showLyrics }) {
+                Icon(Icons.Rounded.Lyrics, "Letra", tint = if (showLyrics) Accent else Color.White)
+            }
+            IconButton(onClick = { showSleepDialog = true }) {
+                Icon(Icons.Rounded.Bedtime, "Temporizador", tint = if (sleepActive) Accent else Color.White)
+            }
             IconButton(onClick = { showQueue = true }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Cola") }
         }
     }
@@ -211,6 +246,106 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             QueueList(s)
         }
     }
+
+    if (showSleepDialog) {
+        SleepTimerDialog(
+            active = s.sleepRemainingMs != null || s.sleepEndOfTrack,
+            onPick = { mins, endOfTrack ->
+                app.player.setSleepTimer(mins, endOfTrack)
+                showSleepDialog = false
+                toast(
+                    when {
+                        endOfTrack -> "La reproducción se detendrá al acabar la canción"
+                        mins > 0 -> "Temporizador activado: $mins min"
+                        else -> "Temporizador desactivado"
+                    },
+                )
+            },
+            onDismiss = { showSleepDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun LyricsBox(trackId: Long, positionMs: Long, onSeek: (Long) -> Unit, modifier: Modifier = Modifier) {
+    val app = LocalApp.current
+    val loaded = rememberLoad(trackId) { app.api.lyrics(trackId) }
+    val listState = rememberLazyListState()
+
+    Box(
+        modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x55000000)).padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (val st = loaded.state) {
+            is Load.Loading -> CircularProgressIndicator(color = Accent)
+            is Load.Err -> Text("No se pudo cargar la letra", color = Muted)
+            is Load.Ok -> {
+                val lyr = st.value
+                if (lyr.lines.isEmpty()) {
+                    Text(
+                        "Esta canción no tiene letra guardada.\nPuedes colocar un archivo .lrc junto al archivo de audio en el NAS o incrustarla en sus etiquetas.",
+                        color = Muted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    val activeIndex = if (lyr.synced) {
+                        lyr.lines.indexOfLast { it.timeMs != null && it.timeMs <= positionMs + 250 }.coerceAtLeast(0)
+                    } else -1
+
+                    LaunchedEffect(activeIndex, trackId) {
+                        if (lyr.synced && activeIndex >= 0) {
+                            runCatching { listState.animateScrollToItem((activeIndex - 2).coerceAtLeast(0)) }
+                        }
+                    }
+
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        itemsIndexed(lyr.lines) { i, line ->
+                            val isActive = lyr.synced && i == activeIndex
+                            Text(
+                                text = line.text.ifBlank { "♪" },
+                                color = if (isActive) Accent else if (lyr.synced) Color(0xAAFFFFFF) else Color.White,
+                                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                style = if (isActive) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.fillMaxWidth().then(
+                                    if (lyr.synced && line.timeMs != null) Modifier.clickable { onSeek(line.timeMs) } else Modifier,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SleepTimerDialog(active: Boolean, onPick: (Int, Boolean) -> Unit, onDismiss: () -> Unit) {
+    val options = listOf(
+        Triple("15 minutos", 15, false),
+        Triple("30 minutos", 30, false),
+        Triple("45 minutos", 45, false),
+        Triple("1 hora", 60, false),
+        Triple("Al terminar la canción actual", 0, true),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Temporizador de apagado") },
+        text = {
+            Column {
+                options.forEach { (label, mins, eot) ->
+                    TextButton(onClick = { onPick(mins, eot) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label, color = Color.White, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+                if (active) {
+                    TextButton(onClick = { onPick(0, false) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Desactivar temporizador", color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
 }
 
 @Composable

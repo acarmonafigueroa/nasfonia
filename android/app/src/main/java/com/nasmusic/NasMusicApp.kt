@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.ConnectivityManager
 import android.net.Network
 import com.nasmusic.data.Api
+import com.nasmusic.data.OfflineStore
 import com.nasmusic.data.Session
 import com.nasmusic.data.UserInfo
 import com.nasmusic.player.PlayerController
@@ -21,6 +22,8 @@ class NasMusicApp : Application() {
     lateinit var session: Session
         private set
     lateinit var api: Api
+        private set
+    lateinit var offline: OfflineStore
         private set
     lateinit var player: PlayerController
         private set
@@ -43,7 +46,8 @@ class NasMusicApp : Application() {
         super.onCreate()
         session = Session(this)
         api = Api(session)
-        player = PlayerController(this, api)
+        offline = OfflineStore(this, api)
+        player = PlayerController(this, api, session, offline)
         // Stream and cover URLs carry the address: rebuild the queue when it changes.
         api.onAddressChanged = { player.refreshUrls(resume = true) }
         player.onStreamError = { scope.launch { if (api.pickReachable()) player.resume() } }

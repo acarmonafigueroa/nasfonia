@@ -1,7 +1,10 @@
 import express from 'express';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { checkFfmpeg, readLyrics } from './scanner.js';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
+const NON_WEB_AUDIO = new Set(['.wma', '.ape', '.wv', '.aif', '.aiff']);
 
 export function apiRouter({ libs, scanner, folders, auth, config }) {
   const r = express.Router();
@@ -71,7 +74,16 @@ export function apiRouter({ libs, scanner, folders, auth, config }) {
   r.get('/stats', (req, res) => res.json(req.lib.stats()));
   r.get('/tracks', (req, res) => res.json(req.lib.tracks(req.query)));
   r.get('/tracks/random', (req, res) => res.json(req.lib.randomTracks(req.query.limit)));
+  r.get('/tracks/:id/radio', (req, res) => res.json(req.lib.radio(id(req), req.query.limit)));
   r.get('/tracks/:id', (req, res) => found(res, req.lib.track(id(req))));
+  r.get(
+    '/lyrics/:id',
+    safe(async (req, res) => {
+      const lyr = await scanner.getLyrics(id(req), { force: req.query.force === '1' });
+      if (!lyr) return res.status(404).json({ error: 'No encontrado' });
+      res.json(lyr);
+    }),
+  );
   r.get('/albums', (req, res) => res.json(req.lib.albums(req.query)));
   r.get('/albums/:id', (req, res) => found(res, req.lib.album(id(req))));
   r.get('/artists', (req, res) => res.json(req.lib.artists()));
@@ -82,22 +94,54 @@ export function apiRouter({ libs, scanner, folders, auth, config }) {
   r.get('/search', (req, res) => res.json(req.lib.search(String(req.query.q ?? ''))));
 
   // --- media --------------------------------------------------------------
-  r.get('/stream/:id', (req, res) => {
-    const t = req.lib.trackFile(id(req));
-    if (!t) return res.status(404).json({ error: 'No encontrado' });
-    // sendFile answers Range requests, which is what lets players seek.
-    res.sendFile(t.path, { dotfiles: 'allow', acceptRanges: true, headers: { 'Cache-Control': 'private, max-age=86400' } }, (err) => {
-      if (err && !res.headersSent) res.status(err.status || 500).json({ error: 'No se puede leer el archivo' });
-    });
-  });
+  r.get(
+    '/stream/:id',
+    safe(async (req, res) => {
+      const t = req.lib.trackFile(id(req));
+      if (!t) return res.status(404).json({ error: 'No encontrado' });
+      const ext = path.extname(t.path).toLowerCase();
+      const reqBitrate = Number.parseInt(req.query.bitrate, 10);
+      const wantTranscode =
+        (Number.isFinite(reqBitrate) && reqBitrate >= 64 && reqBitrate <= 320) ||
+        req.query.transcode === '1' ||
+        (NON_WEB_AUDIO.has(ext) && req.query.raw !== '1');
 
-  r.get('/cover/:id', (req, res) => {
-    const cover = req.lib.albumCover(id(req));
-    if (!cover) return res.status(404).end();
-    res.sendFile(path.join(config.coversDir, cover), { headers: { 'Cache-Control': 'private, max-age=604800' } }, (err) => {
-      if (err && !res.headersSent) res.status(404).end();
-    });
-  });
+      if (wantTranscode && (await checkFfmpeg())) {
+        const br = Number.isFinite(reqBitrate) && reqBitrate >= 64 && reqBitrate <= 320 ? `${reqBitrate}k` : '192k';
+        const seek = Number.parseFloat(req.query.seek);
+        const args = ['-loglevel', 'error'];
+        if (Number.isFinite(seek) && seek > 0) args.push('-ss', String(seek));
+        args.push('-i', t.path, '-vn', '-map_metadata', '-1', '-c:a', 'libmp3lame', '-b:a', br, '-f', 'mp3', 'pipe:1');
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Cache-Control', 'no-store');
+        const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+        req.on('close', () => ff.kill('SIGKILL'));
+        ff.stdout.pipe(res);
+        ff.on('error', () => {
+          if (!res.headersSent) res.status(500).end();
+        });
+        return;
+      }
+
+      // sendFile answers Range requests, which is what lets players seek.
+      res.sendFile(t.path, { dotfiles: 'allow', acceptRanges: true, headers: { 'Cache-Control': 'private, max-age=86400' } }, (err) => {
+        if (err && !res.headersSent) res.status(err.status || 500).json({ error: 'No se puede leer el archivo' });
+      });
+    }),
+  );
+
+  r.get(
+    '/cover/:id',
+    safe(async (req, res) => {
+      const albumId = id(req);
+      let cover = req.lib.albumCover(albumId);
+      if (!cover) cover = await scanner.ensureAlbumCover(albumId);
+      if (!cover) return res.status(404).end();
+      res.sendFile(path.join(config.coversDir, cover), { headers: { 'Cache-Control': 'private, max-age=604800' } }, (err) => {
+        if (err && !res.headersSent) res.status(404).end();
+      });
+    }),
+  );
 
   // --- favorites & plays --------------------------------------------------
   r.get('/favorites', (req, res) => res.json(req.lib.favorites()));
@@ -114,22 +158,28 @@ export function apiRouter({ libs, scanner, folders, auth, config }) {
     res.status(204).end();
   });
 
-  // --- playlists (each user only sees and edits their own) -----------------
+  // --- playlists (users see their own and shared ones; only owners edit) ----
   const name = (req) => String(req.body?.name ?? '').trim().slice(0, 120);
   const trackIds = (req) => (Array.isArray(req.body?.trackIds) ? req.body.trackIds.map(Number).filter(Number.isFinite) : []);
-  const ownPlaylist = (req, res, next) => (req.lib.playlist(id(req)) ? next() : res.status(404).json({ error: 'No encontrado' }));
+  const ownPlaylist = (req, res, next) => {
+    const p = req.lib.playlist(id(req));
+    if (!p) return res.status(404).json({ error: 'No encontrado' });
+    if (!p.isMine) return res.status(403).json({ error: 'Solo el creador de la playlist puede modificarla' });
+    next();
+  };
 
   r.get('/playlists', (req, res) => res.json(req.lib.playlists()));
   r.post('/playlists', (req, res) => {
     const n = name(req);
     if (!n) return res.status(400).json({ error: 'Falta el nombre' });
-    res.status(201).json(req.lib.createPlaylist(n, trackIds(req)));
+    res.status(201).json(req.lib.createPlaylist(n, trackIds(req), Boolean(req.body?.isPublic)));
   });
   r.get('/playlists/:id', (req, res) => found(res, req.lib.playlist(id(req))));
   r.patch('/playlists/:id', ownPlaylist, (req, res) => {
-    const n = name(req);
-    if (!n) return res.status(400).json({ error: 'Falta el nombre' });
-    req.lib.renamePlaylist(id(req), n);
+    const n = req.body?.name != null ? name(req) : undefined;
+    if (req.body?.name != null && !n) return res.status(400).json({ error: 'Falta el nombre' });
+    const isPublic = req.body?.isPublic != null ? Boolean(req.body.isPublic) : undefined;
+    req.lib.updatePlaylist(id(req), { name: n, isPublic });
     res.json(req.lib.playlist(id(req)));
   });
   r.delete('/playlists/:id', ownPlaylist, (req, res) => {

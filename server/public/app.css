@@ -211,6 +211,7 @@ svg.ic { width: 24px; height: 24px; fill: currentColor; flex: none; display: blo
 
 /* ---------- Player ---------- */
 .player { height: var(--player-h); display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr) minmax(180px, 1fr); align-items: center; gap: 16px; padding: 0 16px; }
+.np-collapse { display: none; }
 .np { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .np-cover { width: 56px; height: 56px; border-radius: 4px; }
 .np-text { min-width: 0; display: flex; flex-direction: column; }
@@ -235,9 +236,16 @@ svg.ic { width: 24px; height: 24px; fill: currentColor; flex: none; display: blo
 .slider:hover::-moz-range-thumb { opacity: 1; }
 .slider.volume { max-width: 110px; }
 
-/* ---------- Queue ---------- */
+/* ---------- Queue & Lyrics ---------- */
 .queue-panel h2 { font-size: 16px; margin: 0 0 16px; display: flex; align-items: center; justify-content: space-between; }
 .queue-panel h3 { font-size: 14px; color: var(--muted); margin: 20px 0 8px; }
+.lyrics-box { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 24px; }
+.lyric-line { color: var(--muted); font-size: 16px; font-weight: 600; line-height: 1.4; transition: color .2s, transform .2s; }
+.lyric-line.synced { cursor: pointer; }
+.lyric-line.synced:hover { color: #ddd; }
+.lyric-line.active { color: var(--accent); font-size: 18px; font-weight: 800; }
+.track.dragging { opacity: .4; }
+.track.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
 
 /* ---------- Menu / modal / toast ---------- */
 .menu { position: fixed; z-index: 50; background: #282828; border-radius: 6px; padding: 4px; min-width: 220px; max-width: 320px; box-shadow: 0 16px 32px #000a; max-height: 70vh; overflow-y: auto; }
@@ -329,6 +337,7 @@ button.folder-row:hover { background: #ffffff1f; }
   .genre { font-size: 17px; }
 
   .player { height: 64px; grid-template-columns: minmax(0, 1fr) auto; margin: 0 8px; border-radius: 8px; background: #3a3a3a; padding: 0 8px; position: relative; gap: 8px; }
+  .np { cursor: pointer; }
   .np-cover { width: 44px; height: 44px; }
   .controls { width: auto; flex-direction: row; }
   .buttons { gap: 4px; }
@@ -338,6 +347,38 @@ button.folder-row:hover { background: #ffffff1f; }
   .progress .time { display: none; }
   .progress .slider { height: 2px; pointer-events: none; }
   .extras { display: none; }
+
+  .player.expanded {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    height: 100%;
+    margin: 0;
+    border-radius: 0;
+    background: linear-gradient(180deg, #2b2b2b 0%, #121212 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 24px 24px calc(24px + env(safe-area-inset-bottom));
+    gap: 16px;
+  }
+  .player.expanded .np-collapse { display: inline-grid; align-self: flex-start; width: 40px; height: 40px; }
+  .player.expanded .np { flex-direction: column; width: 100%; gap: 20px; align-items: stretch; cursor: default; }
+  .player.expanded .np-cover { width: min(300px, 75vw); height: min(300px, 75vw); align-self: center; border-radius: 8px; box-shadow: 0 12px 36px #0009; }
+  .player.expanded .np-text { align-items: flex-start; }
+  .player.expanded .np-title { font-size: 20px; font-weight: 800; }
+  .player.expanded .np-artist { font-size: 15px; }
+  .player.expanded .controls { width: 100%; flex-direction: column-reverse; gap: 16px; }
+  .player.expanded .buttons { width: 100%; justify-content: space-between; }
+  .player.expanded #btn-shuffle, .player.expanded #btn-prev, .player.expanded #btn-repeat { display: inline-grid; }
+  .player.expanded .play-btn { width: 64px; height: 64px; background: var(--text); color: #000; }
+  .player.expanded .progress { position: static; }
+  .player.expanded .progress .time { display: block; }
+  .player.expanded .progress .slider { height: 4px; pointer-events: auto; }
+  .player.expanded .extras { display: flex; width: 100%; justify-content: space-around; }
+  .player.expanded #btn-mute, .player.expanded #volume { display: none; }
+  .queue-panel { z-index: 45; }
+
   .mobile-nav { grid-area: mnav; display: flex; justify-content: space-around; height: 56px; background: linear-gradient(180deg, #000c, #000); padding-bottom: env(safe-area-inset-bottom); }
   .mobile-nav a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; color: var(--muted); flex: 1; }
   .mobile-nav a.active { color: var(--text); }

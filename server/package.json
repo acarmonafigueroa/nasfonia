@@ -1,6 +1,6 @@
 {
   "name": "nasfonia-server",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Nasfonía: tu música en streaming desde tu NAS (Docker)",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Alfonso Carmona Figueroa",

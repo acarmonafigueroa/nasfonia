@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Public
@@ -96,6 +97,7 @@ fun HomeScreen() {
     var menu by remember { mutableStateOf(false) }
     var changingPassword by remember { mutableStateOf(false) }
     var editingAddresses by remember { mutableStateOf(false) }
+    var editingQuality by remember { mutableStateOf(false) }
     val me by app.me.collectAsState()
     val onDefaultPassword = me?.isDefaultPassword == true
     if (changingPassword) ChangePasswordDialog(nag = onDefaultPassword) {
@@ -104,6 +106,7 @@ fun HomeScreen() {
         app.refreshMe()
     }
     if (editingAddresses) AddressesDialog { editingAddresses = false }
+    if (editingQuality) AudioQualityDialog { editingQuality = false }
 
     fun scan(full: Boolean) {
         scope.launch {
@@ -164,6 +167,11 @@ fun HomeScreen() {
                                     )
                                     HorizontalDivider()
                                 }
+                                DropdownMenuItem(
+                                    text = { Text("Calidad de audio") },
+                                    leadingIcon = { Icon(Icons.Rounded.Equalizer, null) },
+                                    onClick = { menu = false; editingQuality = true },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Direcciones del servidor") },
                                     leadingIcon = { Icon(Icons.Rounded.Public, null) },

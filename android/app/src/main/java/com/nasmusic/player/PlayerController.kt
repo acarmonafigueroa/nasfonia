@@ -12,6 +12,8 @@ import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.nasmusic.data.Api
+import com.nasmusic.data.OfflineStore
+import com.nasmusic.data.Session
 import com.nasmusic.data.Track
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 
 data class QueueEntry(val index: Int, val track: Track)
 
@@ -33,11 +36,18 @@ data class PlayerState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     /** Upcoming items in play order (shuffle-aware), current first. */
     val queue: List<QueueEntry> = emptyList(),
+    val sleepRemainingMs: Long? = null,
+    val sleepEndOfTrack: Boolean = false,
     val error: String? = null,
 )
 
 /** UI-side handle on PlaybackService. Calls made before it connects are queued. */
-class PlayerController(private val context: Context, private val api: Api) {
+class PlayerController(
+    private val context: Context,
+    private val api: Api,
+    private val session: Session,
+    private val offline: OfflineStore,
+) {
     private val scope = MainScope()
     private var controller: MediaController? = null
     private var connecting = false
@@ -45,12 +55,23 @@ class PlayerController(private val context: Context, private val api: Api) {
 
     // Full track info by id; the session only carries title/artist/artwork.
     private val known = mutableMapOf<Long, Track>()
+    private var sleepDeadlineMs: Long? = null
+    private var sleepAtEndOfTrack: Boolean = false
+    private var tickCount = 0
 
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = publish()
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (sleepAtEndOfTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                sleepAtEndOfTrack = false
+                controller?.pause()
+            }
+            publish()
+            persistQueue()
+        }
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             // 2xxx are network/IO errors: the address may have stopped answering.
             if (error.errorCode in 2000..2999) onStreamError()
@@ -67,6 +88,9 @@ class PlayerController(private val context: Context, private val api: Api) {
                 val c = MediaController.Builder(context, token).buildAsync().await()
                 c.addListener(listener)
                 controller = c
+                if (c.mediaItemCount == 0 && session.isLoggedIn) {
+                    restoreQueue(c)
+                }
                 pending.forEach { it(c) }
                 pending.clear()
                 publish()
@@ -75,11 +99,25 @@ class PlayerController(private val context: Context, private val api: Api) {
             }
         }
         scope.launch {
-            // Progress bar ticks.
+            // Progress bar & sleep timer ticks.
             while (true) {
                 delay(500)
                 val c = controller ?: continue
-                if (c.isPlaying) _state.value = _state.value.copy(positionMs = c.currentPosition, durationMs = duration(c))
+                val deadline = sleepDeadlineMs
+                val rem = if (deadline != null) (deadline - System.currentTimeMillis()).coerceAtLeast(0L) else null
+                if (rem != null && rem <= 0L) {
+                    sleepDeadlineMs = null
+                    c.pause()
+                }
+                if (c.isPlaying || rem != _state.value.sleepRemainingMs || sleepAtEndOfTrack != _state.value.sleepEndOfTrack) {
+                    _state.value = _state.value.copy(
+                        positionMs = c.currentPosition,
+                        durationMs = duration(c),
+                        sleepRemainingMs = sleepDeadlineMs?.let { (it - System.currentTimeMillis()).coerceAtLeast(0L) },
+                        sleepEndOfTrack = sleepAtEndOfTrack,
+                    )
+                }
+                if (c.isPlaying && ++tickCount % 10 == 0) persistQueue()
             }
         }
     }
@@ -141,13 +179,43 @@ class PlayerController(private val context: Context, private val api: Api) {
             shuffle = c.shuffleModeEnabled,
             repeatMode = c.repeatMode,
             queue = queue,
+            sleepRemainingMs = sleepDeadlineMs?.let { (it - System.currentTimeMillis()).coerceAtLeast(0L) },
+            sleepEndOfTrack = sleepAtEndOfTrack,
             error = _state.value.error.takeIf { c.playerError != null },
         )
     }
 
+    private fun persistQueue() {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) return
+        val items = (0 until c.mediaItemCount).mapNotNull { trackOf(c.getMediaItemAt(it)) }
+        if (items.isEmpty()) return
+        runCatching {
+            session.saveQueue(
+                tracksJson = api.json.encodeToString(items.take(300)),
+                index = c.currentMediaItemIndex.coerceIn(0, items.size.coerceAtMost(300) - 1),
+                positionMs = c.currentPosition.coerceAtLeast(0L),
+                shuffle = c.shuffleModeEnabled,
+                repeatMode = c.repeatMode,
+            )
+        }
+    }
+
+    private fun restoreQueue(c: MediaController) {
+        val saved = session.loadQueue() ?: return
+        val tracks = runCatching { api.json.decodeFromString<List<Track>>(saved.tracksJson) }.getOrNull() ?: return
+        if (tracks.isEmpty()) return
+        c.shuffleModeEnabled = saved.shuffle
+        c.repeatMode = saved.repeatMode
+        c.setMediaItems(tracks.map(::toItem), saved.index.coerceIn(tracks.indices), saved.positionMs)
+        c.prepare()
+    }
+
     private fun toItem(t: Track): MediaItem {
         known[t.id] = t
-        val uri = Uri.parse(api.streamUrl(t.id))
+        val uri = offline.localTrackFile(t.id)?.let(Uri::fromFile) ?: Uri.parse(api.streamUrl(t.id))
+        val coverUri = offline.localCoverFile(t.albumId)?.let(Uri::fromFile)
+            ?: if (t.hasCover) api.coverUrl(t.albumId)?.let(Uri::parse) else null
         val extras = Bundle().apply {
             putLong("artistId", t.artistId)
             putLong("albumId", t.albumId)
@@ -162,7 +230,7 @@ class PlayerController(private val context: Context, private val api: Api) {
                     .setTitle(t.title)
                     .setArtist(t.artist)
                     .setAlbumTitle(t.album)
-                    .setArtworkUri(if (t.hasCover) api.coverUrl(t.albumId)?.let(Uri::parse) else null)
+                    .setArtworkUri(coverUri)
                     .setTrackNumber(t.trackNo)
                     .setIsPlayable(true)
                     .setIsBrowsable(false)
@@ -170,6 +238,22 @@ class PlayerController(private val context: Context, private val api: Api) {
                     .build(),
             )
             .build()
+    }
+
+    // --- sleep timer --------------------------------------------------------
+
+    fun setSleepTimer(minutes: Int, endOfTrack: Boolean = false) {
+        if (endOfTrack) {
+            sleepDeadlineMs = null
+            sleepAtEndOfTrack = true
+        } else if (minutes > 0) {
+            sleepAtEndOfTrack = false
+            sleepDeadlineMs = System.currentTimeMillis() + minutes * 60_000L
+        } else {
+            sleepDeadlineMs = null
+            sleepAtEndOfTrack = false
+        }
+        publish()
     }
 
     // --- commands -----------------------------------------------------------

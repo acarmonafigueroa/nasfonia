@@ -6,13 +6,18 @@ Sin suscripciones, sin anuncios y sin que tus datos salgan de casa.
 
 - 🎵 Inicio con lo que has escuchado hace poco, lo último añadido y lo que más escuchas
 - 🔎 Búsqueda instantánea, sin acentos («camaron» encuentra «Camarón»)
-- 💿 Álbumes, artistas, géneros y portadas (incrustadas o `cover.jpg`)
-- ❤️ Canciones que te gustan, playlists, cola, aleatorio y repetir
+- 💿 Álbumes, artistas, géneros y portadas optimizadas (incrustadas, `cover.jpg` o descargadas automáticamente de Deezer/iTunes si faltan)
+- ❤️ Canciones que te gustan, playlists (privadas o compartidas en el NAS), reordenación, cola, aleatorio y repetir
+- 📻 **Radio de canción**: genera mezclas automáticas por artista, género y época a partir de cualquier tema
+- 🎤 **Letras sincronizadas**: lee archivos `.lrc` / `.txt`, etiquetas incrustadas (`USLT`/`SYLT`) o las descarga automáticamente de LRCLIB / Lyrics.ovh con salto al pulsar cada verso
+- 📥 **Modo sin conexión en Android**: descarga canciones, álbumes o playlists enteras para escuchar sin datos
+- 🚗 **Android Auto**, temporizador de apagado (Sleep Timer) y persistencia de cola entre sesiones
+- 🎛️ **Calidad de audio y transcodificación (FFmpeg)**: sirve el archivo original o comprime al vuelo (128 / 192 / 320 kbps) para ahorrar datos móviles, y convierte automáticamente formatos como WMA, APE, WavPack o AIFF
 - 👥 Varios usuarios, cada uno con sus favoritos, playlists e historial
 - 📁 Eliges las carpetas de música desde la propia app
 - 🌍 En casa por IP y fuera por tu dominio: la app cambia sola de una a otra
 - 📱 Android: reproducción en segundo plano, notificación, pantalla de bloqueo y Bluetooth
-- 🎧 MP3, FLAC, M4A/AAC, OGG, Opus, WAV… con avance rápido dentro de la canción
+- 🎧 MP3, FLAC, M4A/AAC, OGG, Opus, WAV, WMA, APE, WV, AIFF… con avance rápido dentro de la canción
 
 Funciona en NAS **UGREEN (UGOS Pro)**, Synology, QNAP, Unraid, TrueNAS o cualquier equipo con Docker, en procesadores Intel/AMD y ARM.
 
@@ -118,20 +123,18 @@ Todas las rutas, salvo `/api/ping` y `/api/login`, piden `Authorization: Bearer 
 | GET | `/api/artists`, `/api/artists/:id`, `/api/artists/:id/tracks` | |
 | GET | `/api/genres`, `/api/genres/:name/tracks` | |
 | GET | `/api/search?q=` | |
-| GET | `/api/stream/:id` | Audio original, con soporte de Range |
-| GET | `/api/cover/:albumId` | Portada |
+| GET | `/api/stream/:id?bitrate=128\|192\|320` | Audio original (Range) o transcodificado con FFmpeg |
+| GET | `/api/lyrics/:id` | Letras sincronizadas (`.lrc`) o texto plano |
+| GET | `/api/tracks/:id/radio` | Radio generada a partir de la canción |
+| GET | `/api/cover/:albumId` | Portada (optimizada a 600×600 si supera 250 KB) |
 | GET/PUT/DELETE | `/api/favorites`, `/api/favorites/:trackId` | |
-| GET/POST/PATCH/DELETE | `/api/playlists`, `/api/playlists/:id` | |
+| GET/POST/PATCH/DELETE | `/api/playlists`, `/api/playlists/:id` | Soporta `{name, isPublic}` |
 | POST/DELETE | `/api/playlists/:id/tracks`, `/api/playlists/:id/tracks/:position` | |
+| POST | `/api/playlists/:id/move` `{from, to}` | Reordena pistas dentro de la playlist |
 | GET/PUT | `/api/folders`, `/api/folders/browse?path=` | Carpetas de música |
 | GET/POST | `/api/scan` (`?full=1` relee todas las etiquetas) | |
 
 </details>
-
-## Limitaciones
-
-- No convierte formatos: se envía el archivo original. ALAC, WMA o APE pueden no sonar en el navegador.
-- Todavía no hay descargas para escuchar sin conexión.
 
 ## Licencia
 

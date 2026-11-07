@@ -1,5 +1,6 @@
 package com.nasmusic.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -57,9 +59,22 @@ import com.nasmusic.ui.TrackRow
 import com.nasmusic.ui.plural
 import com.nasmusic.ui.rememberLoad
 import com.nasmusic.ui.theme.Liked
+import com.nasmusic.ui.theme.Muted
 import kotlinx.coroutines.launch
 
-private enum class LibTab(val label: String) { PLAYLISTS("Playlists"), ALBUMS("Álbumes"), ARTISTS("Artistas") }
+private enum class LibTab(val label: String) {
+    PLAYLISTS("Playlists"),
+    ALBUMS("Álbumes"),
+    ARTISTS("Artistas"),
+    DOWNLOADS("Descargadas"),
+}
+
+private val albumSorts = listOf(
+    "artist" to "Artista",
+    "title" to "Título",
+    "year" to "Año",
+    "recent" to "Recientes",
+)
 
 @Composable
 fun LibraryScreen() {
@@ -68,8 +83,10 @@ fun LibraryScreen() {
     val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableStateOf(LibTab.PLAYLISTS) }
+    var albumSort by rememberSaveable { mutableStateOf("artist") }
     var creating by remember { mutableStateOf(false) }
     val favorites by app.favorites.collectAsState()
+    val downloadedTracks by app.offline.downloadedTracks.collectAsState()
     val playlistsVersion by app.playlistsVersion.collectAsState()
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -77,7 +94,10 @@ fun LibraryScreen() {
             Text("Tu biblioteca", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             IconButton(onClick = { creating = true }) { Icon(Icons.Rounded.Add, "Crear playlist") }
         }
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             LibTab.entries.forEach { t ->
                 FilterChip(
                     selected = tab == t,
@@ -98,7 +118,12 @@ fun LibraryScreen() {
                             }
                         }
                         items(list, key = { it.id }) { p ->
-                            ListItemRow(p.name, "Playlist · ${plural(p.trackCount, "canción", "canciones")}", { nav.navigate(Routes.playlist(p.id)) }) {
+                            val sub = buildString {
+                                append(if (p.isPublic) "Pública" else "Playlist")
+                                if (!p.isMine && !p.owner.isNullOrBlank()) append(" · de ${p.owner}")
+                                append(" · ${plural(p.trackCount, "canción", "canciones")}")
+                            }
+                            ListItemRow(p.name, sub, { nav.navigate(Routes.playlist(p.id)) }) {
                                 CoverImage(p.coverAlbumId, p.coverAlbumId != null, Modifier.size(56.dp), fallback = Icons.AutoMirrored.Rounded.QueueMusic)
                             }
                         }
@@ -106,11 +131,24 @@ fun LibraryScreen() {
                 }
             }
             LibTab.ALBUMS -> {
-                val loaded = rememberLoad { app.api.albums("artist") }
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    albumSorts.forEach { (key, label) ->
+                        FilterChip(
+                            selected = albumSort == key,
+                            onClick = { albumSort = key },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                val loaded = rememberLoad(albumSort) { app.api.albums(albumSort) }
                 LoadBox(loaded) { list ->
                     LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
                         items(list, key = { it.id }) { a ->
-                            ListItemRow(a.title, "Álbum · ${a.artist}", { nav.navigate(Routes.album(a.id)) }) {
+                            val sub = listOfNotNull("Álbum", a.year?.toString(), a.artist).joinToString(" · ")
+                            ListItemRow(a.title, sub, { nav.navigate(Routes.album(a.id)) }) {
                                 CoverImage(a.id, a.hasCover, Modifier.size(56.dp), fallback = Icons.Rounded.Album)
                             }
                         }
@@ -125,6 +163,25 @@ fun LibraryScreen() {
                             ListItemRow(a.name, "Artista", { nav.navigate(Routes.artist(a.id)) }) {
                                 CoverImage(a.coverAlbumId, a.coverAlbumId != null, Modifier.size(56.dp), CircleShape, Icons.Rounded.Person)
                             }
+                        }
+                    }
+                }
+            }
+            LibTab.DOWNLOADS -> {
+                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    if (downloadedTracks.isNotEmpty()) {
+                        item { PlayBar(downloadedTracks) }
+                    }
+                    itemsIndexed(downloadedTracks, key = { _, t -> t.id }) { i, t ->
+                        TrackRow(t, onClick = { app.player.play(downloadedTracks, i) })
+                    }
+                    if (downloadedTracks.isEmpty()) {
+                        item {
+                            Text(
+                                "No tienes canciones descargadas en el móvil. Usa el icono de descarga en cualquier álbum, playlist o el menú ⋮ de una canción para escucharla sin conexión.",
+                                color = Muted,
+                                modifier = Modifier.padding(24.dp),
+                            )
                         }
                     }
                 }
@@ -150,9 +207,23 @@ fun LibraryScreen() {
 @Composable
 fun AllAlbumsScreen() {
     val app = LocalApp.current
-    val loaded = rememberLoad { app.api.albums("artist") }
+    var sort by rememberSaveable { mutableStateOf("artist") }
+    val loaded = rememberLoad(sort) { app.api.albums(sort) }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         BackTitle("Álbumes")
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            albumSorts.forEach { (key, label) ->
+                FilterChip(
+                    selected = sort == key,
+                    onClick = { sort = key },
+                    label = { Text(label) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color.White, selectedLabelColor = Color.Black),
+                )
+            }
+        }
         LoadBox(loaded) { list ->
             LazyVerticalGrid(GridCells.Adaptive(150.dp), contentPadding = PaddingValues(12.dp)) {
                 items(list, key = { it.id }) { AlbumCard(it, width = 400.dp) }

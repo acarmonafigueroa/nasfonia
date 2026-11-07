@@ -23,13 +23,19 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
@@ -179,14 +185,14 @@ fun CoverImage(
     fallback: ImageVector = Icons.Rounded.MusicNote,
 ) {
     val app = LocalApp.current
-    val url = if (hasCover) app.api.coverUrl(albumId) else null
+    val model: Any? = app.offline.localCoverFile(albumId) ?: if (hasCover) app.api.coverUrl(albumId) else null
     Box(modifier.clip(shape).background(Surface2), contentAlignment = Alignment.Center) {
         val placeholder = @Composable {
             Icon(fallback, null, tint = Color(0xFF7A7A7A), modifier = Modifier.fillMaxSize(0.45f))
         }
-        if (url == null) placeholder()
+        if (model == null) placeholder()
         else SubcomposeAsyncImage(
-            model = url,
+            model = model,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -215,11 +221,16 @@ fun TrackRow(
     showCover: Boolean = true,
     number: Int? = null,
     playlistId: Long? = null,
+    indexInPlaylist: Int? = null,
+    playlistSize: Int = 0,
+    canEditPlaylist: Boolean = false,
     onRemoved: () -> Unit = {},
 ) {
     val app = LocalApp.current
     val player by app.player.state.collectAsState()
     val favorites by app.favorites.collectAsState()
+    val downloadedIds by app.offline.downloadedIds.collectAsState()
+    val downloadingIds by app.offline.downloadingIds.collectAsState()
     val playing = player.current?.id == track.id
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
@@ -245,20 +256,35 @@ fun TrackRow(
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyLarge,
             )
-            Text(
-                track.artist,
-                color = Muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (track.id in downloadedIds) {
+                    Icon(Icons.Rounded.DownloadDone, "Descargada", tint = Accent, modifier = Modifier.size(14.dp).padding(end = 4.dp))
+                } else if (track.id in downloadingIds) {
+                    CircularProgressIndicator(Modifier.size(12.dp).padding(end = 4.dp), strokeWidth = 1.5.dp, color = Accent)
+                }
+                Text(
+                    track.artist,
+                    color = Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
         if (track.id in favorites) {
             IconButton(onClick = { app.toggleFavorite(track.id) }) {
                 Icon(Icons.Rounded.Favorite, "Quitar de Me gusta", tint = Accent, modifier = Modifier.size(20.dp))
             }
         }
-        TrackMenuButton(listOf(track), playlistId = playlistId, position = track.position, onRemoved = onRemoved)
+        TrackMenuButton(
+            tracks = listOf(track),
+            playlistId = playlistId,
+            position = track.position,
+            indexInPlaylist = indexInPlaylist,
+            playlistSize = playlistSize,
+            canEditPlaylist = canEditPlaylist,
+            onRemoved = onRemoved,
+        )
     }
 }
 
@@ -268,6 +294,9 @@ fun TrackMenuButton(
     tracks: List<Track>,
     playlistId: Long? = null,
     position: Int? = null,
+    indexInPlaylist: Int? = null,
+    playlistSize: Int = 0,
+    canEditPlaylist: Boolean = false,
     onRemoved: () -> Unit = {},
     icon: ImageVector = Icons.Rounded.MoreVert,
 ) {
@@ -276,9 +305,11 @@ fun TrackMenuButton(
     val toast = LocalToast.current
     val scope = rememberCoroutineScope()
     val favorites by app.favorites.collectAsState()
+    val downloadedIds by app.offline.downloadedIds.collectAsState()
     var open by remember { mutableStateOf(false) }
     var addTo by remember { mutableStateOf(false) }
     val single = tracks.singleOrNull()
+    val allDownloaded = tracks.isNotEmpty() && tracks.all { it.id in downloadedIds }
 
     Box {
         IconButton(onClick = { open = true }) { Icon(icon, "Más opciones", tint = Muted) }
@@ -301,12 +332,45 @@ fun TrackMenuButton(
                     toast("Añadido a la cola")
                 },
             )
+            if (single != null) {
+                DropdownMenuItem(
+                    text = { Text("Iniciar radio de la canción") },
+                    leadingIcon = { Icon(Icons.Rounded.Radio, null) },
+                    onClick = {
+                        open = false
+                        scope.launch {
+                            runCatching { app.api.radio(single.id) }
+                                .onSuccess { radio ->
+                                    app.player.play(radio)
+                                    toast("Radio iniciada a partir de «${single.title}»")
+                                }
+                                .onFailure { toast(it.message ?: "Error al iniciar la radio") }
+                        }
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("Añadir a playlist") },
                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) },
                 onClick = {
                     open = false
                     addTo = true
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(if (allDownloaded) "Borrar descarga del móvil" else "Descargar para escuchar sin conexión") },
+                leadingIcon = { Icon(if (allDownloaded) Icons.Rounded.Delete else Icons.Rounded.Download, null) },
+                onClick = {
+                    open = false
+                    if (allDownloaded) {
+                        app.offline.removeAll(tracks)
+                        toast("Descarga eliminada")
+                    } else {
+                        toast("Descargando ${plural(tracks.size, "canción", "canciones")}…")
+                        app.offline.download(tracks) { n ->
+                            if (n > 0) toast("${plural(n, "canción descargada", "canciones descargadas")}")
+                        }
+                    }
                 },
             )
             if (single != null) {
@@ -337,8 +401,36 @@ fun TrackMenuButton(
                     },
                 )
             }
-            if (playlistId != null && position != null) {
+            if (playlistId != null && position != null && canEditPlaylist) {
                 HorizontalDivider()
+                if (indexInPlaylist != null && indexInPlaylist > 0) {
+                    DropdownMenuItem(
+                        text = { Text("Subir en la playlist") },
+                        leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) },
+                        onClick = {
+                            open = false
+                            scope.launch {
+                                runCatching { app.api.movePlaylistTrack(playlistId, position, indexInPlaylist - 1) }
+                                    .onSuccess { onRemoved() }
+                                    .onFailure { toast(it.message ?: "Error") }
+                            }
+                        },
+                    )
+                }
+                if (indexInPlaylist != null && indexInPlaylist + 1 < playlistSize) {
+                    DropdownMenuItem(
+                        text = { Text("Bajar en la playlist") },
+                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) },
+                        onClick = {
+                            open = false
+                            scope.launch {
+                                runCatching { app.api.movePlaylistTrack(playlistId, position, indexInPlaylist + 1) }
+                                    .onSuccess { onRemoved() }
+                                    .onFailure { toast(it.message ?: "Error") }
+                            }
+                        },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Quitar de esta playlist", color = MaterialTheme.colorScheme.error) },
                     leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
@@ -400,7 +492,7 @@ fun AddToPlaylistDialog(tracks: List<Track>, onDismiss: () -> Unit) {
                         Text("Nueva playlist", fontWeight = FontWeight.Bold)
                     }
                 }
-                val list = (loaded.state as? Load.Ok)?.value.orEmpty()
+                val list = (loaded.state as? Load.Ok)?.value.orEmpty().filter { it.isMine }
                 items(list, key = { it.id }) { p ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
@@ -544,27 +636,57 @@ fun PageHeader(
     }
 }
 
-/** Shuffle + big green play button under a page header. */
+/** Download + Shuffle + big green play/pause button under a page header. */
 @Composable
 fun PlayBar(tracks: List<Track>, extra: @Composable () -> Unit = {}) {
     val app = LocalApp.current
+    val toast = LocalToast.current
+    val player by app.player.state.collectAsState()
+    val downloadedIds by app.offline.downloadedIds.collectAsState()
+    val downloadingIds by app.offline.downloadingIds.collectAsState()
+    val allDownloaded = tracks.isNotEmpty() && tracks.all { it.id in downloadedIds }
+    val anyDownloading = tracks.any { it.id in downloadingIds }
+    val activeInList = player.current?.id != null && tracks.any { it.id == player.current?.id }
+    val isPlayingHere = activeInList && player.isPlaying
+
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (tracks.isNotEmpty()) {
+            IconButton(
+                onClick = {
+                    if (allDownloaded) {
+                        app.offline.removeAll(tracks)
+                        toast("Descarga eliminada")
+                    } else if (!anyDownloading) {
+                        toast("Descargando ${plural(tracks.size, "canción", "canciones")}…")
+                        app.offline.download(tracks) { n ->
+                            if (n > 0) toast("${plural(n, "canción descargada", "canciones descargadas")}")
+                        }
+                    }
+                },
+            ) {
+                when {
+                    anyDownloading -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Accent)
+                    allDownloaded -> Icon(Icons.Rounded.DownloadDone, "Descargado", tint = Accent)
+                    else -> Icon(Icons.Rounded.Download, "Descargar", tint = Muted)
+                }
+            }
+        }
         extra()
         Spacer(Modifier.weight(1f))
         IconButton(onClick = { app.player.play(tracks, shuffle = true) }, enabled = tracks.isNotEmpty()) {
-            Icon(Icons.Rounded.Shuffle, "Aleatorio", tint = Muted, modifier = Modifier.size(28.dp))
+            Icon(Icons.Rounded.Shuffle, "Aleatorio", tint = if (player.shuffle && activeInList) Accent else Muted, modifier = Modifier.size(28.dp))
         }
         Spacer(Modifier.width(8.dp))
         FilledIconButton(
-            onClick = { app.player.play(tracks) },
+            onClick = { if (activeInList) app.player.togglePlay() else app.player.play(tracks) },
             enabled = tracks.isNotEmpty(),
             modifier = Modifier.size(56.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = Accent, contentColor = Color.Black),
         ) {
-            Icon(Icons.Rounded.PlayArrow, "Reproducir", modifier = Modifier.size(32.dp))
+            Icon(if (isPlayingHere) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (isPlayingHere) "Pausar" else "Reproducir", modifier = Modifier.size(32.dp))
         }
     }
 }
